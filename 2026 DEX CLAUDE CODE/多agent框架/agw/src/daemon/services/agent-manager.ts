@@ -23,13 +23,13 @@ export class AgentManager {
     const agentConfigs = this.config.agents;
 
     if (agentConfigs.claude?.enabled !== false) {
-      this.adapters.set('claude', new ClaudeAdapter(timeout, maxBuffer, agentConfigs.claude?.args));
+      this.adapters.set('claude', new ClaudeAdapter(timeout, maxBuffer, agentConfigs.claude?.args, agentConfigs.claude?.command));
     }
     if (agentConfigs.codex?.enabled !== false) {
-      this.adapters.set('codex', new CodexAdapter(timeout, maxBuffer, agentConfigs.codex?.args));
+      this.adapters.set('codex', new CodexAdapter(timeout, maxBuffer, agentConfigs.codex?.args, agentConfigs.codex?.command));
     }
     if (agentConfigs.gemini?.enabled !== false) {
-      this.adapters.set('gemini', new GeminiAdapter(timeout, maxBuffer, agentConfigs.gemini?.args));
+      this.adapters.set('gemini', new GeminiAdapter(timeout, maxBuffer, agentConfigs.gemini?.args, agentConfigs.gemini?.command));
     }
 
     // Sync enabled state to DB
