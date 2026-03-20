@@ -94,9 +94,8 @@ export class TaskExecutor extends EventEmitter {
       throw new Error('No routing function provided and no preferred agent');
     }
 
-    this.taskRepo.updateStatus(taskId, 'running', agentId, routingReason);
+    // Don't set 'running' yet — task may be queued (M1: status accuracy)
     this.auditRepo.log(taskId, 'task.routed', { agentId, reason: routingReason });
-    this.emit('task:status', taskId, { status: 'running', agentId, reason: routingReason });
 
     const adapter = this.agentManager.getAdapter(agentId);
     if (!adapter) {
@@ -105,10 +104,12 @@ export class TaskExecutor extends EventEmitter {
       return this.taskRepo.getById(taskId)!;
     }
 
-    this.auditRepo.log(taskId, 'task.started', { agentId });
-
     // Execute through the concurrency queue
     const executeTask = async (): Promise<void> => {
+      // NOW set 'running' — task is actually starting (M1)
+      this.taskRepo.updateStatus(taskId, 'running', agentId, routingReason);
+      this.auditRepo.log(taskId, 'task.started', { agentId });
+      this.emit('task:status', taskId, { status: 'running', agentId, reason: routingReason });
       const onStdout = (...args: unknown[]) => this.emit('task:stdout', taskId, String(args[0]));
       const onStderr = (...args: unknown[]) => this.emit('task:stderr', taskId, String(args[0]));
       adapter.on('stdout', onStdout);
@@ -143,11 +144,17 @@ export class TaskExecutor extends EventEmitter {
       }
     };
 
-    // Use queue for concurrency control
-    return new Promise<TaskDescriptor>((resolve) => {
+    // Use queue for concurrency control (M2: reject on error to avoid hanging)
+    return new Promise<TaskDescriptor>((resolve, reject) => {
       const wrappedExecute = async () => {
-        await executeTask();
-        resolve(this.taskRepo.getById(taskId)!);
+        try {
+          await executeTask();
+          resolve(this.taskRepo.getById(taskId)!);
+        } catch (err) {
+          this.taskRepo.updateStatus(taskId, 'failed');
+          this.auditRepo.log(taskId, 'task.failed', { error: (err as Error).message });
+          resolve(this.taskRepo.getById(taskId)!);
+        }
       };
 
       const started = this.taskQueue.enqueue({
@@ -158,7 +165,6 @@ export class TaskExecutor extends EventEmitter {
       });
 
       if (!started) {
-        // Task was queued, not started immediately
         this.emit('task:status', taskId, { status: 'queued' });
       }
     });

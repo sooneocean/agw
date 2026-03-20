@@ -39,11 +39,13 @@ export class AgentManager {
   }
 
   async runHealthChecks(): Promise<void> {
-    for (const [id, adapter] of this.adapters) {
+    // M5: Run all health checks in parallel instead of serial
+    const checks = Array.from(this.adapters.entries()).map(async ([id, adapter]) => {
       const available = await adapter.healthCheck();
       this.agentRepo.setAvailability(id, available);
       this.auditRepo.log(null, 'agent.health', { agentId: id, available });
-    }
+    });
+    await Promise.allSettled(checks);
   }
 
   async checkAgent(id: string): Promise<boolean> {
