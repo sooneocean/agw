@@ -21,6 +21,11 @@ import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
 import { registerCostRoutes } from './routes/costs.js';
 import { registerComboRoutes } from './routes/combos.js';
+import { MemoryRepo } from '../store/memory-repo.js';
+import { registerMemoryRoutes } from './routes/memory.js';
+import { registerHealthRoutes } from './routes/health.js';
+import { MetricsCollector } from './services/metrics.js';
+import { CircuitBreakerRegistry } from './services/circuit-breaker.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -40,6 +45,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const costRepo = new CostRepo(db);
   const workflowRepo = new WorkflowRepo(db);
   const comboRepo = new ComboRepo(db);
+  const memoryRepo = new MemoryRepo(db);
 
   const agentManager = new AgentManager(agentRepo, auditRepo, config);
   const executor = new TaskExecutor(
@@ -50,6 +56,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const router = new LlmRouter(config.anthropicApiKey, config.routerModel);
   const workflowExecutor = new WorkflowExecutor(workflowRepo, auditRepo, executor, router, agentManager);
   const comboExecutor = new ComboExecutor(comboRepo, auditRepo, executor, agentManager);
+  const metrics = new MetricsCollector();
+  const cbRegistry = new CircuitBreakerRegistry();
 
   const app = Fastify({
     logger: false,
@@ -63,6 +71,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerWorkflowRoutes(app, workflowExecutor, config);
   registerCostRoutes(app, costRepo, config);
   registerComboRoutes(app, comboExecutor, config);
+  registerMemoryRoutes(app, memoryRepo);
+  registerHealthRoutes(app, metrics, agentManager, cbRegistry, taskRepo, costRepo, config);
 
   app.register(import('./routes/ui.js'));
 
