@@ -15,13 +15,11 @@ export function registerHealthRoutes(
   costRepo: CostRepo | null,
   config: AppConfig,
 ): void {
-  // Liveness probe
   app.get('/health', async () => {
-    return { status: 'ok', uptime: metrics.getUptime(), version: '1.0.0' };
+    return { status: 'ok', uptime: metrics.getUptime(), version: config.version ?? '1.4.0' };
   });
 
-  // Readiness probe — checks agent availability
-  app.get('/health/ready', async (request, reply) => {
+  app.get('/health/ready', async (_request, reply) => {
     const agents = agentManager.getAvailableAgents();
     if (agents.length === 0) {
       return reply.status(503).send({ status: 'not_ready', reason: 'No agents available' });
@@ -29,22 +27,27 @@ export function registerHealthRoutes(
     return { status: 'ready', availableAgents: agents.length };
   });
 
-  // Full metrics dashboard
   app.get('/metrics', async () => {
     const agents = agentManager.listAgents();
-    const available = agents.filter(a => a.available);
-    const tasks = taskRepo.list(1000, 0);
-    const running = tasks.filter(t => t.status === 'running').length;
-    const completed = tasks.filter(t => t.status === 'completed').length;
-    const failed = tasks.filter(t => t.status === 'failed').length;
+    const counts = taskRepo.countByStatus();
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const perf = metrics.getPerformance();
     const mem = metrics.getMemory();
 
     return {
       uptime: metrics.getUptime(),
-      version: '1.0.0',
-      tasks: { total: tasks.length, completed, failed, running },
-      agents: { total: agents.length, available: available.length, list: agents.map(a => ({ id: a.id, available: a.available })) },
+      tasks: {
+        total,
+        completed: counts.completed ?? 0,
+        failed: counts.failed ?? 0,
+        running: counts.running ?? 0,
+        pending: counts.pending ?? 0,
+      },
+      agents: {
+        total: agents.length,
+        available: agents.filter(a => a.available).length,
+        list: agents.map(a => ({ id: a.id, available: a.available })),
+      },
       circuitBreakers: cbRegistry.getAll().map(cb => cb.toJSON()),
       costs: costRepo ? { daily: costRepo.getDailyCost(), monthly: costRepo.getMonthlyCost() } : null,
       performance: perf,

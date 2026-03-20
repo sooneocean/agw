@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ComboExecutor } from '../services/combo-executor.js';
-import type { AppConfig, ComboPreset } from '../../types.js';
+import type { AppConfig, CreateComboRequest } from '../../types.js';
+import { validateWorkspace } from '../middleware/workspace.js';
 
 export function registerComboRoutes(
   app: FastifyInstance,
@@ -40,7 +41,14 @@ export function registerComboRoutes(
 
   // Create and start a combo
   app.post('/combos', { schema: createComboSchema }, async (request, reply) => {
-    const body = request.body as any;
+    const body = request.body as CreateComboRequest;
+    if (body.workingDirectory) {
+      try {
+        body.workingDirectory = validateWorkspace(body.workingDirectory, config.allowedWorkspaces);
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+      }
+    }
     const comboId = comboExecutor.start(body);
     const combo = comboExecutor.getCombo(comboId);
     return reply.status(202).send(combo);
