@@ -18,7 +18,12 @@ export class GeminiAdapter extends BaseAdapter {
     };
   }
 
-  protected buildArgs(task: TaskDescriptor): string[] {
-    return [...this.extraArgs, task.prompt];
+  protected useStdin(): boolean {
+    return true;
+  }
+
+  protected buildArgs(_task: TaskDescriptor): string[] {
+    // Prompt via stdin
+    return [...this.extraArgs, '-'];
   }
 }
