@@ -30,6 +30,11 @@ import { registerMemoryRoutes } from './routes/memory.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerTemplateRoutes } from './routes/templates.js';
 import { registerWebhookRoutes } from './routes/webhooks.js';
+import { Scheduler } from './services/scheduler.js';
+import { ReplayManager } from './services/replay.js';
+import { registerSchedulerRoutes } from './routes/scheduler.js';
+import { registerReplayRoutes } from './routes/replay.js';
+import { registerExportImportRoutes } from './routes/export-import.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -65,6 +70,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const templateEngine = new TemplateEngine();
   templateEngine.seedDefaults();
   const webhookManager = new WebhookManager();
+  const scheduler = new Scheduler();
+  const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager);
 
   const app = Fastify({
     logger: false,
@@ -82,6 +89,9 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerHealthRoutes(app, metrics, agentManager, cbRegistry, taskRepo, costRepo, config);
   registerTemplateRoutes(app, templateEngine, executor, router, agentManager);
   registerWebhookRoutes(app, webhookManager);
+  registerSchedulerRoutes(app, scheduler);
+  registerReplayRoutes(app, replayManager);
+  registerExportImportRoutes(app, templateEngine, webhookManager, scheduler, memoryRepo);
 
   app.register(import('./routes/ui.js'));
 
@@ -93,6 +103,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
       taskRepo.updateStatus(t.taskId, 'failed');
       auditRepo.log(t.taskId, 'task.failed', { reason: 'daemon shutdown' });
     }
+    scheduler.stopAll();
     db.close();
   });
 
