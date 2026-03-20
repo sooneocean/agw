@@ -20,16 +20,25 @@ export interface TaskDescriptor {
   status: TaskStatus;
   assignedAgent?: string;
   routingReason?: string;
+  priority: number;
   createdAt: string;
   completedAt?: string;
   result?: TaskResult;
+  workflowId?: string;
+  stepIndex?: number;
 }
 
 export interface CreateTaskRequest {
   prompt: string;
   preferredAgent?: string;
   workingDirectory?: string;
+  priority?: number;
+  workflowId?: string;
+  stepIndex?: number;
 }
+
+// Priority: 1 = lowest, 5 = highest, 3 = default
+export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 
 // Agent types
 export interface AgentDescriptor {
@@ -65,7 +74,53 @@ export type AuditEventType =
   | 'task.started'
   | 'task.completed'
   | 'task.failed'
-  | 'agent.health';
+  | 'task.queued'
+  | 'agent.health'
+  | 'workflow.created'
+  | 'workflow.step'
+  | 'workflow.completed'
+  | 'workflow.failed'
+  | 'cost.quota_exceeded';
+
+// Workflow types
+export type WorkflowStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type StepMode = 'sequential' | 'parallel';
+
+export interface WorkflowStep {
+  prompt: string;
+  preferredAgent?: string;
+  dependsOn?: number[];  // step indices this step depends on
+}
+
+export interface WorkflowDescriptor {
+  workflowId: string;
+  name: string;
+  steps: WorkflowStep[];
+  mode: StepMode;
+  status: WorkflowStatus;
+  taskIds: string[];
+  currentStep: number;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface CreateWorkflowRequest {
+  name: string;
+  steps: WorkflowStep[];
+  mode?: StepMode;
+  workingDirectory?: string;
+  priority?: number;
+}
+
+// Cost types
+export interface CostSummary {
+  daily: number;
+  monthly: number;
+  allTime: number;
+  byAgent: Record<string, number>;
+  dailyLimit?: number;
+  monthlyLimit?: number;
+}
 
 export interface AuditEntry {
   id?: number;
@@ -87,5 +142,9 @@ export interface AppConfig {
   anthropicApiKey: string;
   routerModel: string;
   defaultTimeout: number;
+  authToken?: string;
+  maxConcurrencyPerAgent: number;
+  dailyCostLimit?: number;
+  monthlyCostLimit?: number;
   agents: Record<string, AgentConfig>;
 }

@@ -9,7 +9,8 @@ export function registerRunCommand(program: Command): void {
     .option('--agent <id>', 'Override agent selection')
     .option('--background', 'Run in background, return taskId')
     .option('--cwd <path>', 'Working directory for the agent')
-    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string }) => {
+    .option('--priority <n>', 'Task priority 1-5 (default 3)', '3')
+    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string }) => {
       const client = new HttpClient();
       let prompt = promptParts.join(' ');
 
@@ -26,13 +27,13 @@ export function registerRunCommand(program: Command): void {
           prompt,
           preferredAgent: options.agent,
           workingDirectory: options.cwd,
+          priority: parseInt(options.priority ?? '3', 10),
         });
 
         if (options.background) {
           console.log(`✓ Task submitted  taskId: ${task.taskId}`);
           console.log(`  Check status: agw status ${task.taskId}`);
         } else {
-          // Print result
           if (task.assignedAgent) {
             console.log(`→ ${task.assignedAgent} (${task.routingReason ?? ''})`);
           }
