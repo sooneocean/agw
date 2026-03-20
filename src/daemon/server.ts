@@ -35,6 +35,11 @@ import { ReplayManager } from './services/replay.js';
 import { registerSchedulerRoutes } from './routes/scheduler.js';
 import { registerReplayRoutes } from './routes/replay.js';
 import { registerExportImportRoutes } from './routes/export-import.js';
+import { CapabilityDiscovery } from './services/capability-discovery.js';
+import { SnapshotManager } from './services/snapshot.js';
+import { registerCapabilityRoutes } from './routes/capabilities.js';
+import { registerBatchRoutes } from './routes/batch.js';
+import { registerSnapshotRoutes } from './routes/snapshots.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -72,6 +77,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const webhookManager = new WebhookManager();
   const scheduler = new Scheduler();
   const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager);
+  const capDiscovery = new CapabilityDiscovery();
+  const snapshotManager = new SnapshotManager(dbPath);
 
   const app = Fastify({
     logger: false,
@@ -92,6 +99,9 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerSchedulerRoutes(app, scheduler);
   registerReplayRoutes(app, replayManager);
   registerExportImportRoutes(app, templateEngine, webhookManager, scheduler, memoryRepo);
+  registerCapabilityRoutes(app, capDiscovery);
+  registerBatchRoutes(app, executor, router, agentManager);
+  registerSnapshotRoutes(app, snapshotManager);
 
   app.register(import('./routes/ui.js'));
 
