@@ -9,6 +9,7 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
   constructor(
     protected timeout: number,
     protected maxBufferSize: number,
+    protected commandOverride?: string,
   ) {
     super();
   }
@@ -28,7 +29,8 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
       let stderrTruncated = false;
       let killed = false;
 
-      const proc = spawn(descriptor.command, args, {
+      const command = this.commandOverride ?? descriptor.command;
+      const proc = spawn(command, args, {
         cwd: task.workingDirectory,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: this.timeout,
