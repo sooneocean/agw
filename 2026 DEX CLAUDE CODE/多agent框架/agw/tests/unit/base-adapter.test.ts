@@ -53,4 +53,24 @@ describe('BaseAdapter', () => {
     const healthy = await adapter.healthCheck();
     expect(healthy).toBe(true);
   });
+
+  it('truncates stdout when exceeding buffer limit', async () => {
+    // Use a tiny buffer to trigger truncation
+    class VerboseAdapter extends BaseAdapter {
+      describe(): AgentDescriptor {
+        return {
+          id: 'verbose', name: 'Verbose', command: 'node',
+          args: [], enabled: true, available: true, healthCheckCommand: 'node --version',
+        };
+      }
+      protected buildArgs(): string[] {
+        // Generate output larger than buffer
+        return ['-e', 'process.stdout.write("x".repeat(200))'];
+      }
+    }
+    const adapter = new VerboseAdapter(5000, 50); // 50 byte buffer
+    const result = await adapter.execute(makeTask());
+    expect(result.stdoutTruncated).toBe(true);
+    expect(result.stdout.length).toBeLessThanOrEqual(50);
+  });
 });
