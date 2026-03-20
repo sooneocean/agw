@@ -41,7 +41,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const executor = new TaskExecutor(
     taskRepo, auditRepo, agentManager, costRepo,
     config.maxConcurrencyPerAgent,
-    config.dailyCostLimit, config.monthlyCostLimit,
+    config.dailyCostLimit, config.monthlyCostLimit, db,
   );
   const router = new LlmRouter(config.anthropicApiKey, config.routerModel);
   const workflowExecutor = new WorkflowExecutor(workflowRepo, auditRepo, executor, router, agentManager);

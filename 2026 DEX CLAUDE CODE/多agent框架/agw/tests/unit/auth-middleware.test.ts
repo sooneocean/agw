@@ -11,6 +11,14 @@ describe('Auth Middleware', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it('allows /ui without auth even when token configured', async () => {
+    const app = Fastify();
+    registerAuthMiddleware(app, 'secret-token');
+    app.get('/ui', async () => 'dashboard');
+    const res = await app.inject({ method: 'GET', url: '/ui' });
+    expect(res.statusCode).toBe(200);
+  });
+
   it('rejects requests without token when configured', async () => {
     const app = Fastify();
     registerAuthMiddleware(app, 'secret-token');

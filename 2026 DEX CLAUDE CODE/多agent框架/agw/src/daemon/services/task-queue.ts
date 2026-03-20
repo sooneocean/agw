@@ -44,11 +44,15 @@ export class TaskQueue extends EventEmitter {
     const current = this.runningCount.get(item.agentId) ?? 0;
     this.runningCount.set(item.agentId, current + 1);
 
-    item.execute().finally(() => {
-      const count = this.runningCount.get(item.agentId) ?? 1;
-      this.runningCount.set(item.agentId, count - 1);
-      this.processQueue(item.agentId);
-    });
+    item.execute()
+      .catch((err) => {
+        this.emit('error', item.taskId, err);
+      })
+      .finally(() => {
+        const count = this.runningCount.get(item.agentId) ?? 1;
+        this.runningCount.set(item.agentId, count - 1);
+        this.processQueue(item.agentId);
+      });
   }
 
   private processQueue(agentId: string): void {

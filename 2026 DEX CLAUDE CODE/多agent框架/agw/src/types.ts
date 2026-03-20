@@ -89,7 +89,6 @@ export type StepMode = 'sequential' | 'parallel';
 export interface WorkflowStep {
   prompt: string;
   preferredAgent?: string;
-  dependsOn?: number[];  // step indices this step depends on
 }
 
 export interface WorkflowDescriptor {
