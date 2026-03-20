@@ -80,7 +80,12 @@ export type AuditEventType =
   | 'workflow.step'
   | 'workflow.completed'
   | 'workflow.failed'
-  | 'cost.quota_exceeded';
+  | 'cost.quota_exceeded'
+  | 'combo.created'
+  | 'combo.step'
+  | 'combo.iteration'
+  | 'combo.completed'
+  | 'combo.failed';
 
 // Workflow types
 export type WorkflowStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -109,6 +114,56 @@ export interface CreateWorkflowRequest {
   mode?: StepMode;
   workingDirectory?: string;
   priority?: number;
+}
+
+// Combo types — multi-agent collaboration patterns
+export type ComboStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export type ComboPattern = 'pipeline' | 'map-reduce' | 'review-loop' | 'debate';
+
+export interface ComboStep {
+  /** Agent to use for this step */
+  agent: string;
+  /** Prompt template. Use {{prev}} for previous step output, {{step.N}} for specific step output, {{input}} for original input */
+  prompt: string;
+  /** Role label for this step (e.g., "analyzer", "reviewer", "synthesizer") */
+  role?: string;
+}
+
+export interface ComboDescriptor {
+  comboId: string;
+  name: string;
+  pattern: ComboPattern;
+  steps: ComboStep[];
+  input: string;
+  status: ComboStatus;
+  taskIds: string[];
+  stepResults: Record<number, string>; // step index → stdout
+  finalOutput?: string;
+  maxIterations?: number; // for review-loop
+  iterations?: number;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface CreateComboRequest {
+  name: string;
+  pattern: ComboPattern;
+  steps: ComboStep[];
+  input: string;
+  workingDirectory?: string;
+  priority?: number;
+  maxIterations?: number; // for review-loop, default 3
+}
+
+// Built-in combo presets
+export interface ComboPreset {
+  id: string;
+  name: string;
+  description: string;
+  pattern: ComboPattern;
+  steps: ComboStep[];
+  maxIterations?: number;
 }
 
 // Cost types
