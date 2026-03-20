@@ -17,10 +17,16 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
   abstract describe(): AgentDescriptor;
   protected abstract buildArgs(task: TaskDescriptor): string[];
 
+  /** Whether this adapter sends the prompt via stdin instead of argv. Override to return true. */
+  protected useStdin(): boolean {
+    return false;
+  }
+
   async execute(task: TaskDescriptor): Promise<TaskResult> {
     const descriptor = this.describe();
     const args = this.buildArgs(task);
     const start = Date.now();
+    const useStdin = this.useStdin();
 
     return new Promise<TaskResult>((resolve) => {
       let stdout = '';
@@ -32,11 +38,17 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
       const command = this.commandOverride ?? descriptor.command;
       const proc = spawn(command, args, {
         cwd: task.workingDirectory,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         timeout: this.timeout,
       });
 
-      proc.stdout.on('data', (chunk: Buffer) => {
+      // Send prompt via stdin if supported (avoids leaking prompt in ps/argv)
+      if (useStdin && proc.stdin) {
+        proc.stdin.write(task.prompt);
+        proc.stdin.end();
+      }
+
+      proc.stdout!.on('data', (chunk: Buffer) => {
         const text = chunk.toString();
         this.emit('stdout', text);
         if (stdout.length < this.maxBufferSize) {
@@ -50,7 +62,7 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
         }
       });
 
-      proc.stderr.on('data', (chunk: Buffer) => {
+      proc.stderr!.on('data', (chunk: Buffer) => {
         const text = chunk.toString();
         this.emit('stderr', text);
         if (stderr.length < this.maxBufferSize) {

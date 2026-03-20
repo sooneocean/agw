@@ -145,5 +145,8 @@ export interface AppConfig {
   maxConcurrencyPerAgent: number;
   dailyCostLimit?: number;
   monthlyCostLimit?: number;
+  allowedWorkspaces?: string[];
+  maxPromptLength: number;
+  maxWorkflowSteps: number;
   agents: Record<string, AgentConfig>;
 }

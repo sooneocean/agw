@@ -1,34 +1,41 @@
 import type { FastifyInstance } from 'fastify';
 import type { WorkflowExecutor } from '../services/workflow-executor.js';
+import type { AppConfig } from '../../types.js';
+import { validateWorkspace } from '../middleware/workspace.js';
 
-const createWorkflowSchema = {
-  body: {
-    type: 'object',
-    required: ['name', 'steps'],
-    properties: {
-      name: { type: 'string', minLength: 1 },
-      steps: {
-        type: 'array',
-        minItems: 1,
-        items: {
-          type: 'object',
-          required: ['prompt'],
-          properties: {
-            prompt: { type: 'string', minLength: 1 },
-            preferredAgent: { type: 'string' },
+export function registerWorkflowRoutes(
+  app: FastifyInstance,
+  workflowExecutor: WorkflowExecutor,
+  config: AppConfig,
+): void {
+  const createWorkflowSchema = {
+    body: {
+      type: 'object',
+      required: ['name', 'steps'],
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 200 },
+        steps: {
+          type: 'array',
+          minItems: 1,
+          maxItems: config.maxWorkflowSteps,
+          items: {
+            type: 'object',
+            required: ['prompt'],
+            properties: {
+              prompt: { type: 'string', minLength: 1, maxLength: config.maxPromptLength },
+              preferredAgent: { type: 'string' },
+            },
+            additionalProperties: false,
           },
-          additionalProperties: false,
         },
+        mode: { type: 'string', enum: ['sequential', 'parallel'], default: 'sequential' },
+        workingDirectory: { type: 'string' },
+        priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
       },
-      mode: { type: 'string', enum: ['sequential', 'parallel'], default: 'sequential' },
-      workingDirectory: { type: 'string' },
-      priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
+      additionalProperties: false,
     },
-    additionalProperties: false,
-  },
-};
+  };
 
-export function registerWorkflowRoutes(app: FastifyInstance, workflowExecutor: WorkflowExecutor): void {
   app.post('/workflows', { schema: createWorkflowSchema }, async (request, reply) => {
     const body = request.body as {
       name: string;
@@ -38,7 +45,15 @@ export function registerWorkflowRoutes(app: FastifyInstance, workflowExecutor: W
       priority?: number;
     };
 
-    // Create workflow and return immediately (async execution)
+    // Validate workspace
+    if (body.workingDirectory) {
+      try {
+        body.workingDirectory = validateWorkspace(body.workingDirectory, config.allowedWorkspaces);
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+      }
+    }
+
     const workflowId = workflowExecutor.start(body);
     const wf = workflowExecutor.getWorkflow(workflowId);
     return reply.status(202).send(wf);

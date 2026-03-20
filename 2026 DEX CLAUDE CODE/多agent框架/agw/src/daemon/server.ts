@@ -46,23 +46,26 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const router = new LlmRouter(config.anthropicApiKey, config.routerModel);
   const workflowExecutor = new WorkflowExecutor(workflowRepo, auditRepo, executor, router, agentManager);
 
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 1_048_576, // 1MB request body limit (M4)
+  });
 
-  // Auth middleware (no-op if no token configured)
+  // Auth middleware (loopback-only if no token configured)
   registerAuthMiddleware(app, config.authToken);
 
   registerAgentRoutes(app, agentManager);
-  registerTaskRoutes(app, executor, router, agentManager);
-  registerWorkflowRoutes(app, workflowExecutor);
+  registerTaskRoutes(app, executor, router, agentManager, config);
+  registerWorkflowRoutes(app, workflowExecutor, config);
   registerCostRoutes(app, costRepo, config);
 
   // Static files for Web UI
   app.register(import('./routes/ui.js'));
 
-  // Run health checks on startup
-  await agentManager.runHealthChecks();
+  // M5: Run health checks in parallel, non-blocking for server start
+  agentManager.runHealthChecks().catch(() => {});
 
-  // Graceful shutdown: wait for running tasks, mark in-progress as failed
+  // Graceful shutdown: mark in-progress tasks as failed
   app.addHook('onClose', async () => {
     const runningTasks = taskRepo.list(100, 0).filter(t => t.status === 'running');
     for (const t of runningTasks) {

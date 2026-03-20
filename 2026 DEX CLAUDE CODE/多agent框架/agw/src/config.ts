@@ -13,6 +13,8 @@ const DEFAULTS: AppConfig = {
   routerModel: 'claude-haiku-4-5-20251001',
   defaultTimeout: 300_000,
   maxConcurrencyPerAgent: 3,
+  maxPromptLength: 100_000,
+  maxWorkflowSteps: 20,
   agents: DEFAULT_AGENTS,
 };
 
@@ -58,6 +60,9 @@ export function loadConfig(configPath: string): AppConfig {
     maxConcurrencyPerAgent: fileConfig.maxConcurrencyPerAgent ?? DEFAULTS.maxConcurrencyPerAgent,
     dailyCostLimit: fileConfig.dailyCostLimit,
     monthlyCostLimit: fileConfig.monthlyCostLimit,
+    allowedWorkspaces: fileConfig.allowedWorkspaces,
+    maxPromptLength: fileConfig.maxPromptLength ?? DEFAULTS.maxPromptLength,
+    maxWorkflowSteps: fileConfig.maxWorkflowSteps ?? DEFAULTS.maxWorkflowSteps,
     agents,
   };
 }

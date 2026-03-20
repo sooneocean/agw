@@ -11,14 +11,19 @@ export class CodexAdapter extends BaseAdapter {
       id: 'codex',
       name: 'Codex CLI',
       command: 'codex',
-      args: ['--quiet', ...this.extraArgs],
+      args: ['exec', ...this.extraArgs],
       enabled: true,
       available: true,
       healthCheckCommand: 'codex --version',
     };
   }
 
-  protected buildArgs(task: TaskDescriptor): string[] {
-    return ['--quiet', ...this.extraArgs, task.prompt];
+  protected useStdin(): boolean {
+    return true;
+  }
+
+  protected buildArgs(_task: TaskDescriptor): string[] {
+    // Prompt is sent via stdin (reads from stdin when prompt arg is "-")
+    return ['exec', ...this.extraArgs, '-'];
   }
 }
