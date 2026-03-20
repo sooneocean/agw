@@ -39,7 +39,7 @@
   │  協作任務       (自然語言描述)   (原生 spawn)     (各自獨立工作)
   │
   └─ 大規模 ──→ Ruflo ──→ swarm orchestration ──→ MCP tools + agents
-     swarm       (未來)    (259 tools)             (觸發門檻後啟用)
+     swarm       (未來)    (大量 MCP tools)        (觸發門檻後啟用)
 
   ═══════════════════════════════════════════════════════════
   L0: Superpowers skills 跨層提供 brainstorm/TDD/debug/review
@@ -55,8 +55,15 @@
 
 ### 啟用方式
 
-在 `.claude/settings.json` 加入：
+設定環境變數 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=true`。可透過以下任一方式：
 
+**方式 A — shell 環境（推薦，最簡單）：**
+```bash
+export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=true
+```
+加入 `~/.bashrc` 或 `~/.zshrc` 使其持久化。
+
+**方式 B — settings.json（如支援 env key）：**
 ```json
 {
   "env": {
@@ -65,19 +72,31 @@
 }
 ```
 
+> **注意**：需驗證當前 Claude Code 版本是否支援 settings.json 中的 `env` key。若不支援，使用方式 A。
+
 無需安裝任何額外套件。
+
+### 停用方式
+
+移除或設為 `false` 即可：
+```bash
+unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+```
+Agent Teams 停用後不影響 AGW 或 Superpowers 的運作。
 
 ### 選路指南：AGW vs Agent Teams
 
-| 場景 | 走 AGW | 走 Agent Teams |
-|------|--------|---------------|
-| 單任務分派給特定 agent | ✅ | |
-| Pipeline / Map-Reduce combo | ✅ | |
-| 多人同時研究不同面向 | | ✅ |
-| 跨層協作（前端 + 後端 + 測試） | | ✅ |
-| Review-Loop / Debate | ✅ | |
-| 需要 git worktree 隔離 | | ✅ |
-| 批量 bug 修復 | | ✅ |
+**核心區分原則**：AGW 適合 **結構化多步驟工作流（有明確資料流）**；Agent Teams 適合 **多個獨立 session 並行、各自擁有 git worktree 隔離**。
+
+| 場景 | 走 AGW | 走 Agent Teams | 原因 |
+|------|--------|---------------|------|
+| 單任務分派給特定 agent | ✅ | | 結構化單步 |
+| Pipeline / Map-Reduce combo | ✅ | | 有明確資料流 |
+| 多人同時研究不同面向 | | ✅ | 獨立並行、無共享狀態 |
+| 跨層協作（前端 + 後端 + 測試） | | ✅ | 各自需獨立 worktree |
+| Review-Loop / Debate | ✅ | | 結構化迭代流程 |
+| 需要 git worktree 隔離 | | ✅ | Agent Teams 原生支持 |
+| 批量 bug 修復 | | ✅ | 每個 bug 獨立、需隔離 |
 
 ### 命名慣例
 
@@ -106,9 +125,9 @@
 
 ### Phase 1 — 立即交付
 
-1. **啟用 Agent Teams** — 修改 `.claude/settings.json`
-2. **建立選路文件** — root `CLAUDE.md` 加入 AGW vs Agent Teams 使用指南
-3. **更新 AGW 文件** — 在現有 AGW `CLAUDE.md` 中說明與 Agent Teams 的分工
+1. **啟用 Agent Teams** — 設定環境變數（或修改 `.claude/settings.json`）
+2. **新建 root 選路文件** — 新建 `/Users/asd/CLAUDE.md`（目前不存在），加入 AGW vs Agent Teams 使用指南
+3. **更新 AGW 文件** — 在現有 `2026 DEX CLAUDE CODE/多agent框架/CLAUDE.md` 中補充與 Agent Teams 的分工說明
 
 ### Phase 1 不做的事
 
@@ -123,9 +142,9 @@
 - AGW 新增 `ruflo` adapter（可選）
 - 建立跨層監控
 
-## 7. 成功指標
+## 7. 成功指標（驗收測試）
 
-- Agent Teams 可正常 spawn teammates
-- 使用者能根據選路表清楚判斷用 AGW 還是 Agent Teams
-- 現有 97 tests 不受影響
-- Superpowers skills 跨層正常運作
+1. **Agent Teams smoke test**：spawn 一個 teammate 執行簡單任務（如建立一個檔案），確認 teammate 在獨立 worktree 中完成工作
+2. **AGW 回歸**：現有 97 tests 全數通過，無任何變更
+3. **選路文件可用**：root `CLAUDE.md` 存在且包含選路表
+4. **Superpowers 正常**：skills 跨層運作不受影響
