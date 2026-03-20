@@ -1,0 +1,29 @@
+{
+  "name": "agw",
+  "version": "0.1.0",
+  "description": "Agent Gateway — multi-agent task router and executor",
+  "type": "module",
+  "bin": {
+    "agw": "./bin/agw.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/daemon/server.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "better-sqlite3": "^11.8.0",
+    "commander": "^13.1.0",
+    "fastify": "^5.2.0",
+    "nanoid": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
