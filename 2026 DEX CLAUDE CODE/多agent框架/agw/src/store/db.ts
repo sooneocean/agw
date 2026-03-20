@@ -73,8 +73,27 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority DESC, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_audit_task_id ON audit_log(task_id);
 CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
+CREATE TABLE IF NOT EXISTS combos (
+  combo_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  pattern TEXT NOT NULL,
+  steps TEXT NOT NULL,
+  input TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  task_ids TEXT NOT NULL DEFAULT '[]',
+  step_results TEXT NOT NULL DEFAULT '{}',
+  final_output TEXT,
+  max_iterations INTEGER NOT NULL DEFAULT 3,
+  iterations INTEGER NOT NULL DEFAULT 0,
+  working_directory TEXT,
+  priority INTEGER NOT NULL DEFAULT 3,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_cost_recorded_at ON cost_records(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_cost_agent ON cost_records(agent_id);
+CREATE INDEX IF NOT EXISTS idx_combos_status ON combos(status);
 `;
 
 const SEED_AGENTS = [
