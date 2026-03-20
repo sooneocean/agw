@@ -86,7 +86,8 @@ Return ONLY valid JSON: { "agentId": "...", "reason": "...", "confidence": 0.0-1
     return async (params) => {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
       const client = new Anthropic({ apiKey: this.apiKey });
-      return client.messages.create(params as Parameters<typeof client.messages.create>[0]);
+      const response = await client.messages.create(params as Parameters<typeof client.messages.create>[0]);
+      return response as unknown as { content: Array<{ type: string; text: string }> };
     };
   }
 }

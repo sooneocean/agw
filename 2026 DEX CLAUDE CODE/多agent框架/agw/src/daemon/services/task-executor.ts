@@ -64,8 +64,8 @@ export class TaskExecutor extends EventEmitter {
     this.auditRepo.log(taskId, 'task.started', { agentId });
 
     // Forward adapter events
-    const onStdout = (chunk: string) => this.emit('task:stdout', taskId, chunk);
-    const onStderr = (chunk: string) => this.emit('task:stderr', taskId, chunk);
+    const onStdout = (...args: unknown[]) => this.emit('task:stdout', taskId, String(args[0]));
+    const onStderr = (...args: unknown[]) => this.emit('task:stderr', taskId, String(args[0]));
     adapter.on('stdout', onStdout);
     adapter.on('stderr', onStderr);
 
