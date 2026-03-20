@@ -1,0 +1,98 @@
+import type Database from 'better-sqlite3';
+import type { TaskDescriptor, TaskResult, TaskStatus } from '../types.js';
+
+interface TaskRow {
+  task_id: string;
+  prompt: string;
+  working_directory: string;
+  preferred_agent: string | null;
+  assigned_agent: string | null;
+  routing_reason: string | null;
+  status: string;
+  exit_code: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  stdout_truncated: number;
+  stderr_truncated: number;
+  duration_ms: number | null;
+  token_estimate: number | null;
+  cost_estimate: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+function rowToTask(row: TaskRow): TaskDescriptor {
+  const task: TaskDescriptor = {
+    taskId: row.task_id,
+    prompt: row.prompt,
+    workingDirectory: row.working_directory,
+    status: row.status as TaskStatus,
+    createdAt: row.created_at,
+  };
+  if (row.preferred_agent) task.preferredAgent = row.preferred_agent;
+  if (row.assigned_agent) task.assignedAgent = row.assigned_agent;
+  if (row.routing_reason) task.routingReason = row.routing_reason;
+  if (row.completed_at) task.completedAt = row.completed_at;
+  if (row.exit_code !== null) {
+    task.result = {
+      exitCode: row.exit_code,
+      stdout: row.stdout ?? '',
+      stderr: row.stderr ?? '',
+      stdoutTruncated: row.stdout_truncated === 1,
+      stderrTruncated: row.stderr_truncated === 1,
+      durationMs: row.duration_ms ?? 0,
+      tokenEstimate: row.token_estimate ?? undefined,
+      costEstimate: row.cost_estimate ?? undefined,
+    };
+  }
+  return task;
+}
+
+export class TaskRepo {
+  constructor(private db: Database.Database) {}
+
+  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent'>): void {
+    this.db.prepare(
+      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.createdAt);
+  }
+
+  getById(taskId: string): TaskDescriptor | undefined {
+    const row = this.db.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as TaskRow | undefined;
+    return row ? rowToTask(row) : undefined;
+  }
+
+  updateStatus(taskId: string, status: TaskStatus, assignedAgent?: string, routingReason?: string): void {
+    if (assignedAgent !== undefined) {
+      this.db.prepare(
+        'UPDATE tasks SET status = ?, assigned_agent = ?, routing_reason = ? WHERE task_id = ?'
+      ).run(status, assignedAgent, routingReason ?? null, taskId);
+    } else {
+      this.db.prepare('UPDATE tasks SET status = ? WHERE task_id = ?').run(status, taskId);
+    }
+  }
+
+  updateResult(taskId: string, result: TaskResult): void {
+    this.db.prepare(
+      `UPDATE tasks SET exit_code = ?, stdout = ?, stderr = ?,
+       stdout_truncated = ?, stderr_truncated = ?,
+       duration_ms = ?, token_estimate = ?, cost_estimate = ?,
+       completed_at = ?
+       WHERE task_id = ?`
+    ).run(
+      result.exitCode, result.stdout, result.stderr,
+      result.stdoutTruncated ? 1 : 0, result.stderrTruncated ? 1 : 0,
+      result.durationMs, result.tokenEstimate ?? null, result.costEstimate ?? null,
+      new Date().toISOString(),
+      taskId
+    );
+  }
+
+  list(limit: number = 20, offset: number = 0): TaskDescriptor[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?'
+    ).all(limit, offset) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+}
