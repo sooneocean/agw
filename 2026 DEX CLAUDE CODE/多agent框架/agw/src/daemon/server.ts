@@ -21,6 +21,8 @@ import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
 import { registerCostRoutes } from './routes/costs.js';
 import { registerComboRoutes } from './routes/combos.js';
+import { MemoryRepo } from '../store/memory-repo.js';
+import { registerMemoryRoutes } from './routes/memory.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -40,6 +42,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const costRepo = new CostRepo(db);
   const workflowRepo = new WorkflowRepo(db);
   const comboRepo = new ComboRepo(db);
+  const memoryRepo = new MemoryRepo(db);
 
   const agentManager = new AgentManager(agentRepo, auditRepo, config);
   const executor = new TaskExecutor(
@@ -63,6 +66,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerWorkflowRoutes(app, workflowExecutor, config);
   registerCostRoutes(app, costRepo, config);
   registerComboRoutes(app, comboExecutor, config);
+  registerMemoryRoutes(app, memoryRepo);
 
   app.register(import('./routes/ui.js'));
 
