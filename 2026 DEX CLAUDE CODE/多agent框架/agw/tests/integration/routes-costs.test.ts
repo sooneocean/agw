@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-describe('Agent routes', () => {
+describe('Cost routes', () => {
   let app: FastifyInstance;
   let tmpDir: string;
 
@@ -13,10 +13,12 @@ describe('Agent routes', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-test-'));
     const configPath = path.join(tmpDir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
+      dailyCostLimit: 5.00,
+      monthlyCostLimit: 50.00,
       agents: {
-        claude: { enabled: true, command: 'echo', args: [] },
-        codex: { enabled: false, command: 'codex', args: [] },
-        gemini: { enabled: false, command: 'gemini', args: [] },
+        claude: { enabled: false, command: 'echo', args: [] },
+        codex: { enabled: false, command: 'echo', args: [] },
+        gemini: { enabled: false, command: 'echo', args: [] },
       },
     }));
     app = await buildServer({
@@ -30,12 +32,16 @@ describe('Agent routes', () => {
     fs.rmSync(tmpDir, { recursive: true });
   });
 
-  it('GET /agents returns list of agents', async () => {
-    const res = await app.inject({ method: 'GET', url: '/agents' });
+  it('GET /costs returns cost summary', async () => {
+    const res = await app.inject({ method: 'GET', url: '/costs' });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body).toHaveLength(3);
-    expect(body[0]).toHaveProperty('id');
-    expect(body[0]).toHaveProperty('available');
+    expect(body).toHaveProperty('daily');
+    expect(body).toHaveProperty('monthly');
+    expect(body).toHaveProperty('allTime');
+    expect(body).toHaveProperty('byAgent');
+    expect(body.daily).toBe(0);
+    expect(body.dailyLimit).toBe(5.00);
+    expect(body.monthlyLimit).toBe(50.00);
   });
 });

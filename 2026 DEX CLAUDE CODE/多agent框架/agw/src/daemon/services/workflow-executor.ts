@@ -18,6 +18,32 @@ export class WorkflowExecutor extends EventEmitter {
     super();
   }
 
+  /** Start a workflow in the background. Returns workflowId immediately. */
+  start(request: CreateWorkflowRequest): string {
+    const workflowId = nanoid(12);
+    const createdAt = new Date().toISOString();
+
+    this.workflowRepo.create({
+      workflowId,
+      name: request.name,
+      steps: request.steps,
+      mode: request.mode ?? 'sequential',
+      status: 'pending',
+      createdAt,
+      workingDirectory: request.workingDirectory,
+      priority: request.priority,
+    });
+    this.auditRepo.log(null, 'workflow.created', { workflowId, name: request.name, stepCount: request.steps.length });
+
+    // Execute in background — don't block the caller
+    this.runWorkflow(workflowId, request).catch((err) => {
+      this.emit('workflow:error', workflowId, err);
+    });
+
+    return workflowId;
+  }
+
+  /** Execute workflow synchronously (for testing or CLI). */
   async execute(request: CreateWorkflowRequest): Promise<WorkflowDescriptor> {
     const workflowId = nanoid(12);
     const createdAt = new Date().toISOString();
@@ -34,6 +60,11 @@ export class WorkflowExecutor extends EventEmitter {
     });
     this.auditRepo.log(null, 'workflow.created', { workflowId, name: request.name, stepCount: request.steps.length });
 
+    await this.runWorkflow(workflowId, request);
+    return this.workflowRepo.getById(workflowId)!;
+  }
+
+  private async runWorkflow(workflowId: string, request: CreateWorkflowRequest): Promise<void> {
     this.workflowRepo.updateStatus(workflowId, 'running');
 
     try {
@@ -44,12 +75,12 @@ export class WorkflowExecutor extends EventEmitter {
       }
       this.workflowRepo.updateStatus(workflowId, 'completed');
       this.auditRepo.log(null, 'workflow.completed', { workflowId });
+      this.emit('workflow:done', workflowId);
     } catch (err) {
       this.workflowRepo.updateStatus(workflowId, 'failed');
       this.auditRepo.log(null, 'workflow.failed', { workflowId, error: (err as Error).message });
+      this.emit('workflow:done', workflowId);
     }
-
-    return this.workflowRepo.getById(workflowId)!;
   }
 
   private async executeSequential(workflowId: string, request: CreateWorkflowRequest): Promise<void> {

@@ -46,7 +46,7 @@ export class TaskQueue extends EventEmitter {
 
     item.execute()
       .catch((err) => {
-        this.emit('error', item.taskId, err);
+        this.emit('task:error', item.taskId, err);
       })
       .finally(() => {
         const count = this.runningCount.get(item.agentId) ?? 1;
