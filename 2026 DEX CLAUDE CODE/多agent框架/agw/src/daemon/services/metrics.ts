@@ -12,8 +12,8 @@ export class MetricsCollector {
   private durations: number[] = [];
 
   recordDuration(ms: number): void {
+    if (this.durations.length >= 500) this.durations.shift();
     this.durations.push(ms);
-    if (this.durations.length > 1000) this.durations.splice(0, 500);
   }
 
   getPerformance(): { avgDurationMs: number; p95DurationMs: number } {
