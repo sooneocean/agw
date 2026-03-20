@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGW Dashboard</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --orange: #d29922; --purple: #bc8cff; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; }
+  .header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 20px; color: var(--accent); }
+  .header .status { display: flex; gap: 16px; align-items: center; }
+  .badge { padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge-green { background: rgba(63,185,80,0.2); color: var(--green); }
+  .badge-red { background: rgba(248,81,73,0.2); color: var(--red); }
+  .badge-orange { background: rgba(210,153,34,0.2); color: var(--orange); }
+  .badge-blue { background: rgba(88,166,255,0.2); color: var(--accent); }
+  .badge-purple { background: rgba(188,140,255,0.2); color: var(--purple); }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .card h2 { font-size: 14px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .card .value { font-size: 28px; font-weight: 700; }
+  .card .sub { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); color: var(--dim); font-size: 12px; text-transform: uppercase; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(88,166,255,0.05); }
+  .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; }
+  .prompt { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 20px; cursor: pointer; color: var(--dim); border-bottom: 2px solid transparent; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .agent-card { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; text-align: center; }
+  .agent-card .name { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  .agent-card .indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .indicator-green { background: var(--green); }
+  .indicator-red { background: var(--red); }
+  .indicator-grey { background: var(--dim); }
+  .submit-form { display: flex; gap: 8px; margin-bottom: 24px; }
+  .submit-form input, .submit-form select { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+  .submit-form input { flex: 1; }
+  .submit-form button { background: var(--accent); color: #fff; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .submit-form button:hover { opacity: 0.9; }
+  .refresh-btn { background: none; border: 1px solid var(--border); color: var(--dim); padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .refresh-btn:hover { color: var(--text); border-color: var(--text); }
+  .cost-bar { height: 6px; background: var(--border); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .cost-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>AGW Dashboard</h1>
+  <div class="status">
+    <span id="conn-status" class="badge badge-green">Connected</span>
+    <button class="refresh-btn" onclick="refreshAll()">Refresh</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats cards -->
+  <div class="grid" id="stats-grid">
+    <div class="card"><h2>Total Tasks</h2><div class="value" id="stat-total">-</div></div>
+    <div class="card"><h2>Running</h2><div class="value" id="stat-running">-</div></div>
+    <div class="card"><h2>Daily Cost</h2><div class="value" id="stat-daily-cost">-</div><div class="sub" id="stat-daily-limit"></div><div class="cost-bar"><div class="cost-bar-fill" id="daily-bar" style="width:0%;background:var(--green)"></div></div></div>
+    <div class="card"><h2>Monthly Cost</h2><div class="value" id="stat-monthly-cost">-</div><div class="sub" id="stat-monthly-limit"></div><div class="cost-bar"><div class="cost-bar-fill" id="monthly-bar" style="width:0%;background:var(--green)"></div></div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
+    <div class="tab" onclick="switchTab('agents')">Agents</div>
+    <div class="tab" onclick="switchTab('workflows')">Workflows</div>
+    <div class="tab" onclick="switchTab('costs')">Cost Breakdown</div>
+  </div>
+
+  <!-- Tasks panel -->
+  <div class="panel active" id="panel-tasks">
+    <div class="submit-form">
+      <input type="text" id="task-prompt" placeholder="Enter task prompt...">
+      <select id="task-agent">
+        <option value="">Auto-route</option>
+        <option value="claude">Claude</option>
+        <option value="codex">Codex</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <select id="task-priority">
+        <option value="1">P1 (Low)</option>
+        <option value="2">P2</option>
+        <option value="3" selected>P3 (Normal)</option>
+        <option value="4">P4</option>
+        <option value="5">P5 (Critical)</option>
+      </select>
+      <button onclick="submitTask()">Run</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>ID</th><th>Status</th><th>Priority</th><th>Agent</th><th>Prompt</th><th>Duration</th><th>Cost</th></tr></thead>
+        <tbody id="tasks-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Agents panel -->
+  <div class="panel" id="panel-agents">
+    <div class="agent-grid" id="agents-grid"></div>
+  </div>
+
+  <!-- Workflows panel -->
+  <div class="panel" id="panel-workflows">
+    <div class="card">
+      <table>
+        <thead><tr><th>ID</th><th>Name</th><th>Mode</th><th>Status</th><th>Steps</th><th>Progress</th></tr></thead>
+        <tbody id="workflows-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Cost panel -->
+  <div class="panel" id="panel-costs">
+    <div class="grid" id="cost-agent-grid"></div>
+  </div>
+</div>
+
+<script>
+const BASE = window.location.origin;
+const headers = {};
+const authToken = new URLSearchParams(window.location.search).get('token');
+if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+async function api(path) {
+  try {
+    const res = await fetch(BASE + path, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    document.getElementById('conn-status').className = 'badge badge-green';
+    document.getElementById('conn-status').textContent = 'Connected';
+    return res.json();
+  } catch (e) {
+    document.getElementById('conn-status').className = 'badge badge-red';
+    document.getElementById('conn-status').textContent = 'Disconnected';
+    return null;
+  }
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(BASE + path, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return res.json();
+}
+
+function statusBadge(status) {
+  const map = { completed: 'green', running: 'blue', failed: 'red', pending: 'orange', routing: 'purple', queued: 'orange' };
+  return `<span class="badge badge-${map[status] || 'orange'}">${status}</span>`;
+}
+
+function priorityBadge(p) {
+  const labels = { 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4', 5: 'P5' };
+  const colors = { 1: 'orange', 2: 'orange', 3: 'blue', 4: 'purple', 5: 'red' };
+  return `<span class="badge badge-${colors[p] || 'blue'}">${labels[p] || p}</span>`;
+}
+
+async function loadTasks() {
+  const tasks = await api('/tasks?limit=50');
+  if (!tasks) return;
+  const tbody = document.getElementById('tasks-tbody');
+  const running = tasks.filter(t => t.status === 'running').length;
+  document.getElementById('stat-total').textContent = tasks.length;
+  document.getElementById('stat-running').textContent = running;
+  tbody.innerHTML = tasks.map(t => `<tr>
+    <td class="mono">${t.taskId}</td>
+    <td>${statusBadge(t.status)}</td>
+    <td>${priorityBadge(t.priority || 3)}</td>
+    <td>${t.assignedAgent || '-'}</td>
+    <td class="prompt" title="${t.prompt}">${t.prompt}</td>
+    <td class="mono">${t.result ? (t.result.durationMs / 1000).toFixed(1) + 's' : '-'}</td>
+    <td class="mono">${t.result?.costEstimate ? '$' + t.result.costEstimate.toFixed(3) : '-'}</td>
+  </tr>`).join('');
+}
+
+async function loadAgents() {
+  const agents = await api('/agents');
+  if (!agents) return;
+  const grid = document.getElementById('agents-grid');
+  grid.innerHTML = agents.map(a => `<div class="agent-card">
+    <div class="name">${a.name}</div>
+    <div><span class="indicator ${a.available ? 'indicator-green' : a.enabled ? 'indicator-red' : 'indicator-grey'}"></span>
+    ${a.available ? 'Ready' : a.enabled ? 'Unavailable' : 'Disabled'}</div>
+    <div class="sub" style="margin-top:8px">${a.command} ${JSON.parse(a.args || '[]').join(' ')}</div>
+    <div class="sub">${a.lastHealthCheck ? 'Checked: ' + new Date(a.lastHealthCheck).toLocaleTimeString() : 'Never checked'}</div>
+  </div>`).join('');
+}
+
+async function loadCosts() {
+  const costs = await api('/costs');
+  if (!costs) return;
+  document.getElementById('stat-daily-cost').textContent = '$' + costs.daily.toFixed(2);
+  document.getElementById('stat-monthly-cost').textContent = '$' + costs.monthly.toFixed(2);
+
+  if (costs.dailyLimit) {
+    document.getElementById('stat-daily-limit').textContent = `Limit: $${costs.dailyLimit.toFixed(2)}`;
+    const pct = Math.min(100, (costs.daily / costs.dailyLimit) * 100);
+    const bar = document.getElementById('daily-bar');
+    bar.style.width = pct + '%';
+    bar.style.background = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--orange)' : 'var(--green)';
+  }
+  if (costs.monthlyLimit) {
+    document.getElementById('stat-monthly-limit').textContent = `Limit: $${costs.monthlyLimit.toFixed(2)}`;
+    const pct = Math.min(100, (costs.monthly / costs.monthlyLimit) * 100);
+    const bar = document.getElementById('monthly-bar');
+    bar.style.width = pct + '%';
+    bar.style.background = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--orange)' : 'var(--green)';
+  }
+
+  const grid = document.getElementById('cost-agent-grid');
+  grid.innerHTML = Object.entries(costs.byAgent).map(([id, cost]) =>
+    `<div class="card"><h2>${id}</h2><div class="value">$${cost.toFixed(2)}</div><div class="sub">All time</div></div>`
+  ).join('') || '<div class="card"><h2>No cost data yet</h2></div>';
+}
+
+async function loadWorkflows() {
+  const wfs = await api('/workflows?limit=50');
+  if (!wfs) return;
+  const tbody = document.getElementById('workflows-tbody');
+  tbody.innerHTML = wfs.map(w => `<tr>
+    <td class="mono">${w.workflowId}</td>
+    <td>${w.name}</td>
+    <td><span class="badge badge-blue">${w.mode}</span></td>
+    <td>${statusBadge(w.status)}</td>
+    <td class="mono">${w.steps.length}</td>
+    <td class="mono">${w.currentStep + 1}/${w.steps.length}</td>
+  </tr>`).join('');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+async function submitTask() {
+  const prompt = document.getElementById('task-prompt').value.trim();
+  if (!prompt) return;
+  const agent = document.getElementById('task-agent').value || undefined;
+  const priority = parseInt(document.getElementById('task-priority').value);
+  await apiPost('/tasks', { prompt, preferredAgent: agent, priority });
+  document.getElementById('task-prompt').value = '';
+  loadTasks();
+}
+
+async function refreshAll() {
+  await Promise.all([loadTasks(), loadAgents(), loadCosts(), loadWorkflows()]);
+}
+
+// Initial load
+refreshAll();
+// Auto-refresh every 5s
+setInterval(refreshAll, 5000);
+</script>
+</body>
+</html>

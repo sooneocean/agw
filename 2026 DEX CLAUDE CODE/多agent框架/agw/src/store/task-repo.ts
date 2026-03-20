@@ -9,6 +9,7 @@ interface TaskRow {
   assigned_agent: string | null;
   routing_reason: string | null;
   status: string;
+  priority: number;
   exit_code: number | null;
   stdout: string | null;
   stderr: string | null;
@@ -19,6 +20,8 @@ interface TaskRow {
   cost_estimate: number | null;
   created_at: string;
   completed_at: string | null;
+  workflow_id: string | null;
+  step_index: number | null;
 }
 
 function rowToTask(row: TaskRow): TaskDescriptor {
@@ -27,12 +30,15 @@ function rowToTask(row: TaskRow): TaskDescriptor {
     prompt: row.prompt,
     workingDirectory: row.working_directory,
     status: row.status as TaskStatus,
+    priority: row.priority ?? 3,
     createdAt: row.created_at,
   };
   if (row.preferred_agent) task.preferredAgent = row.preferred_agent;
   if (row.assigned_agent) task.assignedAgent = row.assigned_agent;
   if (row.routing_reason) task.routingReason = row.routing_reason;
   if (row.completed_at) task.completedAt = row.completed_at;
+  if (row.workflow_id) task.workflowId = row.workflow_id;
+  if (row.step_index !== null) task.stepIndex = row.step_index;
   if (row.exit_code !== null) {
     task.result = {
       exitCode: row.exit_code,
@@ -51,11 +57,25 @@ function rowToTask(row: TaskRow): TaskDescriptor {
 export class TaskRepo {
   constructor(private db: Database.Database) {}
 
-  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent'>): void {
+  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex'>): void {
     this.db.prepare(
-      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.createdAt);
+      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null);
+  }
+
+  listQueued(): TaskDescriptor[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM tasks WHERE status = 'pending' ORDER BY priority DESC, created_at ASC`
+    ).all() as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  countRunningByAgent(agentId: string): number {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) as cnt FROM tasks WHERE assigned_agent = ? AND status = 'running'`
+    ).get(agentId) as { cnt: number };
+    return row.cnt;
   }
 
   getById(taskId: string): TaskDescriptor | undefined {

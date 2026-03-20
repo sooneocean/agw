@@ -12,6 +12,7 @@ const DEFAULTS: AppConfig = {
   anthropicApiKey: '',
   routerModel: 'claude-haiku-4-5-20251001',
   defaultTimeout: 300_000,
+  maxConcurrencyPerAgent: 3,
   agents: DEFAULT_AGENTS,
 };
 
@@ -43,11 +44,20 @@ export function loadConfig(configPath: string): AppConfig {
     fileConfig.anthropicApiKey ??
     DEFAULTS.anthropicApiKey;
 
+  const authToken =
+    process.env.AGW_AUTH_TOKEN ??
+    fileConfig.authToken ??
+    undefined;
+
   return {
     port,
     anthropicApiKey,
+    authToken,
     routerModel: fileConfig.routerModel ?? DEFAULTS.routerModel,
     defaultTimeout: fileConfig.defaultTimeout ?? DEFAULTS.defaultTimeout,
+    maxConcurrencyPerAgent: fileConfig.maxConcurrencyPerAgent ?? DEFAULTS.maxConcurrencyPerAgent,
+    dailyCostLimit: fileConfig.dailyCostLimit,
+    monthlyCostLimit: fileConfig.monthlyCostLimit,
     agents,
   };
 }
