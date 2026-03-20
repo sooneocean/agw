@@ -18,14 +18,14 @@ export class TaskExecutor extends EventEmitter {
     private taskRepo: TaskRepo,
     private auditRepo: AuditRepo,
     private agentManager: AgentManager,
-    costRepo?: CostRepo,
+    costRepo?: CostRepo | null,
     maxConcurrencyPerAgent: number = 3,
     dailyCostLimit?: number,
     monthlyCostLimit?: number,
     db?: Database.Database,
   ) {
     super();
-    this.costRepo = costRepo ?? new CostRepo(db!);
+    this.costRepo = costRepo ?? (db ? new CostRepo(db) : null) as CostRepo;
     this.dailyCostLimit = dailyCostLimit;
     this.monthlyCostLimit = monthlyCostLimit;
     this.taskQueue = new TaskQueue(taskRepo, maxConcurrencyPerAgent);
@@ -36,6 +36,7 @@ export class TaskExecutor extends EventEmitter {
   }
 
   private checkQuota(): void {
+    if (!this.costRepo) return;
     if (this.dailyCostLimit) {
       const daily = this.costRepo.getDailyCost();
       if (daily >= this.dailyCostLimit) {
@@ -131,7 +132,7 @@ export class TaskExecutor extends EventEmitter {
         const eventType = result.exitCode === 0 ? 'task.completed' : 'task.failed';
         this.auditRepo.log(taskId, eventType, { exitCode: result.exitCode, durationMs: result.durationMs });
 
-        if (result.costEstimate) {
+        if (result.costEstimate && this.costRepo) {
           this.costRepo.record(taskId, agentId, result.costEstimate, result.tokenEstimate ?? 0);
         }
 
