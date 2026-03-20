@@ -54,10 +54,10 @@ export class WorkflowRepo {
   }
 
   addTaskId(workflowId: string, taskId: string): void {
-    const wf = this.getById(workflowId);
-    if (!wf) return;
-    const taskIds = [...wf.taskIds, taskId];
-    this.db.prepare('UPDATE workflows SET task_ids = ? WHERE workflow_id = ?').run(JSON.stringify(taskIds), workflowId);
+    // Atomic JSON array append — no read-modify-write race
+    this.db.prepare(
+      `UPDATE workflows SET task_ids = json_insert(task_ids, '$[#]', ?) WHERE workflow_id = ?`
+    ).run(taskId, workflowId);
   }
 
   list(limit: number = 20, offset: number = 0): WorkflowDescriptor[] {
