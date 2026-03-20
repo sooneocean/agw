@@ -10,22 +10,26 @@ import { AuditRepo } from '../store/audit-repo.js';
 import { CostRepo } from '../store/cost-repo.js';
 import { WorkflowRepo } from '../store/workflow-repo.js';
 import { ComboRepo } from '../store/combo-repo.js';
+import { MemoryRepo } from '../store/memory-repo.js';
 import { AgentManager } from './services/agent-manager.js';
 import { TaskExecutor } from './services/task-executor.js';
 import { WorkflowExecutor } from './services/workflow-executor.js';
 import { ComboExecutor } from './services/combo-executor.js';
 import { LlmRouter } from '../router/llm-router.js';
+import { MetricsCollector } from './services/metrics.js';
+import { CircuitBreakerRegistry } from './services/circuit-breaker.js';
+import { TemplateEngine } from './services/template-engine.js';
+import { WebhookManager } from './services/webhook-manager.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
 import { registerAgentRoutes } from './routes/agents.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
 import { registerCostRoutes } from './routes/costs.js';
 import { registerComboRoutes } from './routes/combos.js';
-import { MemoryRepo } from '../store/memory-repo.js';
 import { registerMemoryRoutes } from './routes/memory.js';
 import { registerHealthRoutes } from './routes/health.js';
-import { MetricsCollector } from './services/metrics.js';
-import { CircuitBreakerRegistry } from './services/circuit-breaker.js';
+import { registerTemplateRoutes } from './routes/templates.js';
+import { registerWebhookRoutes } from './routes/webhooks.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -58,6 +62,9 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const comboExecutor = new ComboExecutor(comboRepo, auditRepo, executor, agentManager);
   const metrics = new MetricsCollector();
   const cbRegistry = new CircuitBreakerRegistry();
+  const templateEngine = new TemplateEngine();
+  templateEngine.seedDefaults();
+  const webhookManager = new WebhookManager();
 
   const app = Fastify({
     logger: false,
@@ -73,6 +80,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerComboRoutes(app, comboExecutor, config);
   registerMemoryRoutes(app, memoryRepo);
   registerHealthRoutes(app, metrics, agentManager, cbRegistry, taskRepo, costRepo, config);
+  registerTemplateRoutes(app, templateEngine, executor, router, agentManager);
+  registerWebhookRoutes(app, webhookManager);
 
   app.register(import('./routes/ui.js'));
 
