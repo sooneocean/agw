@@ -93,7 +93,16 @@ CREATE TABLE IF NOT EXISTS combos (
 
 CREATE INDEX IF NOT EXISTS idx_cost_recorded_at ON cost_records(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_cost_agent ON cost_records(agent_id);
+CREATE TABLE IF NOT EXISTS memory (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'global',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_combos_status ON combos(status);
+CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory(scope);
 `;
 
 const SEED_AGENTS = [
