@@ -26,7 +26,7 @@ export class MemoryRepo {
   }
 
   getByScope(scope: string): MemoryEntry[] {
-    return this.db.prepare('SELECT * FROM memory WHERE scope = ? ORDER BY updated_at DESC').all(scope) as any[];
+    return this.db.prepare('SELECT * FROM memory WHERE scope = ? ORDER BY updated_at DESC').all(scope) as MemoryEntry[];
   }
 
   delete(key: string): boolean {
@@ -35,12 +35,12 @@ export class MemoryRepo {
   }
 
   list(limit: number = 50): MemoryEntry[] {
-    return this.db.prepare('SELECT * FROM memory ORDER BY updated_at DESC LIMIT ?').all(limit) as any[];
+    return this.db.prepare('SELECT * FROM memory ORDER BY updated_at DESC LIMIT ?').all(limit) as MemoryEntry[];
   }
 
   search(query: string): MemoryEntry[] {
     return this.db.prepare(
       'SELECT * FROM memory WHERE key LIKE ? OR value LIKE ? ORDER BY updated_at DESC LIMIT 20'
-    ).all(`%${query}%`, `%${query}%`) as any[];
+    ).all(`%${query}%`, `%${query}%`) as MemoryEntry[];
   }
 }

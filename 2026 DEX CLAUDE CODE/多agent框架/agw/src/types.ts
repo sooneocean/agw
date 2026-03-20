@@ -192,6 +192,7 @@ export interface AgentConfig {
 }
 
 export interface AppConfig {
+  version?: string;
   port: number;
   anthropicApiKey: string;
   routerModel: string;

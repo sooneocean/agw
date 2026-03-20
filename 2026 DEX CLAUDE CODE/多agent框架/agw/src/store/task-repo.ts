@@ -115,4 +115,13 @@ export class TaskRepo {
     ).all(limit, offset) as TaskRow[];
     return rows.map(rowToTask);
   }
+
+  countByStatus(): Record<string, number> {
+    const rows = this.db.prepare(
+      'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'
+    ).all() as { status: string; cnt: number }[];
+    const result: Record<string, number> = {};
+    for (const r of rows) result[r.status] = r.cnt;
+    return result;
+  }
 }
