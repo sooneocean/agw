@@ -3,26 +3,40 @@ import type { TaskExecutor } from '../services/task-executor.js';
 import type { LlmRouter } from '../../router/llm-router.js';
 import type { AgentManager } from '../services/agent-manager.js';
 
+const createTaskSchema = {
+  body: {
+    type: 'object',
+    required: ['prompt'],
+    properties: {
+      prompt: { type: 'string', minLength: 1 },
+      preferredAgent: { type: 'string' },
+      workingDirectory: { type: 'string' },
+      priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
+    },
+    additionalProperties: false,
+  },
+};
+
 export function registerTaskRoutes(
   app: FastifyInstance,
   executor: TaskExecutor,
   router: LlmRouter,
   agentManager: AgentManager,
 ): void {
-  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string } }>(
+  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number } }>(
     '/tasks',
+    { schema: createTaskSchema },
     async (request, reply) => {
-      const { prompt, preferredAgent, workingDirectory } = request.body;
+      const { prompt, preferredAgent, workingDirectory, priority } = request.body;
 
       const availableAgents = agentManager.getAvailableAgents();
       if (availableAgents.length === 0 && !preferredAgent) {
         return reply.status(503).send({ error: 'No agents available. Check CLI installations.' });
       }
 
-      // Start execution (non-blocking for SSE, but this endpoint waits for completion)
       let lowConfidence = false;
       const task = await executor.execute(
-        { prompt, preferredAgent, workingDirectory },
+        { prompt, preferredAgent, workingDirectory, priority },
         async (p) => {
           const decision = await router.route(p, availableAgents, preferredAgent);
           if (decision.confidence < 0.5) lowConfidence = true;
