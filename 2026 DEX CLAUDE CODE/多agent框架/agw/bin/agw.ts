@@ -1,3 +1,5 @@
 #!/usr/bin/env tsx
-console.log('agw: not yet implemented');
-process.exit(0);
+import { createCli } from '../src/cli/index.js';
+
+const program = createCli();
+program.parse();
