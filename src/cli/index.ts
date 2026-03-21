@@ -16,6 +16,8 @@ import { registerConfigCommand } from './commands/config.js';
 import { registerWatchCommand } from './commands/watch.js';
 import { registerQueueCommand } from './commands/queue.js';
 import { registerVersionCheckCommand } from './commands/version-check.js';
+import { registerTaskActionsCli } from './commands/task-actions-cli.js';
+import { registerTemplateCli } from './commands/template-cli.js';
 import { VERSION } from '../version.js';
 
 export function createCli(): Command {
@@ -42,6 +44,8 @@ export function createCli(): Command {
   registerWatchCommand(program);
   registerQueueCommand(program);
   registerVersionCheckCommand(program);
+  registerTaskActionsCli(program);
+  registerTemplateCli(program);
 
   return program;
 }
