@@ -76,16 +76,29 @@ export function parseDsl(source: string): DslProgram {
 function parseStep(text: string): DslStep {
   const match = text.match(/^(\w+)\s*:\s*"(.+)"$/s);
   if (!match) throw new Error(`Invalid step syntax: ${text.slice(0, 50)}`);
-  return { agent: match[1], prompt: match[2] };
+  // Unescape backslash sequences
+  const prompt = match[2].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  return { agent: match[1], prompt };
 }
 
 function parseStepList(text: string): DslStep[] {
-  // Split by comma, but respect quoted strings
+  // Split by comma, but respect quoted strings and escaped quotes
   const steps: DslStep[] = [];
   let current = '';
   let inQuote = false;
+  let escaped = false;
 
   for (const char of text) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inQuote) {
+      escaped = true;
+      current += char;
+      continue;
+    }
     if (char === '"') inQuote = !inQuote;
     if (char === ',' && !inQuote) {
       if (current.trim()) steps.push(parseStep(current.trim()));
@@ -104,8 +117,19 @@ function splitPipeline(text: string): string[] {
   let current = '';
   let depth = 0;
   let inQuote = false;
+  let escaped = false;
 
   for (const char of text) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inQuote) {
+      escaped = true;
+      current += char;
+      continue;
+    }
     if (char === '"') inQuote = !inQuote;
     if (!inQuote) {
       if (char === '[') depth++;

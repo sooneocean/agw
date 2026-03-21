@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
+import { handleCliError } from '../error-handler.js';
 import type { TaskDescriptor } from '../../types.js';
 
 export function registerHistoryCommand(program: Command): void {
@@ -22,8 +23,7 @@ export function registerHistoryCommand(program: Command): void {
           console.log(`${t.taskId}  ${t.status.padEnd(10)} ${(t.assignedAgent ?? '-').padEnd(9)} ${prompt}`);
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 }

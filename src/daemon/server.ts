@@ -110,17 +110,19 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
 
   agentManager.runHealthChecks().catch(() => {});
 
-  // Periodic audit log cleanup
-  const auditPurgeTimer = setInterval(() => {
+  // Periodic data cleanup
+  const purgeTimer = setInterval(() => {
     auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);
+    costRepo.purgeOlderThan(90); // keep 90 days of cost data
   }, AUDIT_PURGE_INTERVAL_MS);
-  auditPurgeTimer.unref();
+  purgeTimer.unref();
 
   // Initial purge on startup
   auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);
+  costRepo.purgeOlderThan(90);
 
   app.addHook('onClose', async () => {
-    clearInterval(auditPurgeTimer);
+    clearInterval(purgeTimer);
 
     // Mark running tasks as failed
     const runningTasks = taskRepo.listByStatus('running');

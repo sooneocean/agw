@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
+import { handleCliError } from '../error-handler.js';
 import type { AgentDescriptor } from '../../types.js';
 
 export function registerAgentsCommand(program: Command): void {
@@ -39,8 +40,7 @@ export function registerAgentsCommand(program: Command): void {
           console.log(`${a.id}: ${result.available ? '✓ available' : '✗ unavailable'}`);
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 }

@@ -14,7 +14,7 @@ export function createCli(): Command {
   program
     .name('agw')
     .description('Agent Gateway — route tasks to the best AI agent')
-    .version('1.7.2');
+    .version('1.7.3');
 
   registerRunCommand(program);
   registerStatusCommand(program);

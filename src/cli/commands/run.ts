@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
+import { handleCliError } from '../error-handler.js';
 import type { TaskDescriptor } from '../../types.js';
 
 export function registerRunCommand(program: Command): void {
@@ -49,11 +50,7 @@ export function registerRunCommand(program: Command): void {
           }
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        if ((err as Error).message.includes('fetch failed') || (err as Error).message.includes('ECONNREFUSED')) {
-          console.error('Daemon not started. Run: agw daemon start');
-        }
-        process.exit(1);
+        handleCliError(err);
       }
     });
 }

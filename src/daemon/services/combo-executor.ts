@@ -7,7 +7,7 @@ import type { TaskExecutor } from './task-executor.js';
 import type { AgentManager } from './agent-manager.js';
 
 // Interpolate template variables: {{input}}, {{prev}}, {{step.N}}, {{all}}
-function interpolate(template: string, context: { input: string; prev?: string; stepResults: Record<number, string> }): string {
+export function interpolate(template: string, context: { input: string; prev?: string; stepResults: Record<number, string> }): string {
   let result = template.replace(/\{\{input\}\}/g, context.input);
   if (context.prev !== undefined) {
     result = result.replace(/\{\{prev\}\}/g, context.prev);

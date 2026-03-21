@@ -42,6 +42,13 @@ export class CostRepo {
     return result;
   }
 
+  /** Delete cost records older than the given number of days. Returns count deleted. */
+  purgeOlderThan(days: number): number {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const result = this.db.prepare('DELETE FROM cost_records WHERE recorded_at < ?').run(cutoff);
+    return result.changes;
+  }
+
   getSummary(dailyLimit?: number, monthlyLimit?: number): CostSummary {
     return {
       daily: this.getDailyCost(),

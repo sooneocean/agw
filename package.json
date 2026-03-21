@@ -1,6 +1,6 @@
 {
   "name": "@sooneocean/agw",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Agent Gateway — multi-agent task router for Claude, Codex, Gemini with combos, DAG, DSL",
   "type": "module",
   "bin": {

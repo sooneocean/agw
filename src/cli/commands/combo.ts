@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
+import { handleCliError } from '../error-handler.js';
 import type { ComboDescriptor, ComboPreset } from '../../types.js';
 
 export function registerComboCommand(program: Command): void {
@@ -20,8 +21,7 @@ export function registerComboCommand(program: Command): void {
           console.log(`  ${p.id.padEnd(25)} ${p.pattern.padEnd(14)} ${p.description}`);
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 
@@ -44,8 +44,7 @@ export function registerComboCommand(program: Command): void {
         console.log(`Steps: ${combo.steps.length}`);
         console.log(`\nCheck progress: agw combo status ${combo.comboId}`);
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 
@@ -63,8 +62,7 @@ export function registerComboCommand(program: Command): void {
         console.log(`Status: ${combo.status}`);
         console.log(`\nCheck progress: agw combo status ${combo.comboId}`);
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 
@@ -100,8 +98,7 @@ export function registerComboCommand(program: Command): void {
           console.log(c.finalOutput);
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 
@@ -123,8 +120,7 @@ export function registerComboCommand(program: Command): void {
           console.log(`${c.comboId}  ${c.pattern.padEnd(14)} ${c.status.padEnd(10)} ${c.name}`);
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 }
