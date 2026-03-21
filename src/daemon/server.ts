@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
+import { nanoid } from 'nanoid';
 import path from 'node:path';
 import os from 'node:os';
 import { loadConfig } from '../config.js';
@@ -134,6 +135,12 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerAuthMiddleware(app, config.authToken);
   registerRateLimiter(app);
   registerTenantMiddleware(app, tenantManager);
+
+  // Request ID for tracing
+  app.addHook('onRequest', async (request, reply) => {
+    const requestId = request.headers['x-request-id'] as string ?? nanoid(8);
+    reply.header('X-Request-ID', requestId);
+  });
 
   registerAgentRoutes(app, agentManager, agentLearning);
   registerTaskRoutes(app, executor, router, agentManager, config, agentLearning);

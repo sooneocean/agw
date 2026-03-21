@@ -19,6 +19,7 @@ import { registerVersionCheckCommand } from './commands/version-check.js';
 import { registerTaskActionsCli } from './commands/task-actions-cli.js';
 import { registerTemplateCli } from './commands/template-cli.js';
 import { registerInfoCommand } from './commands/info.js';
+import { registerBulkCommand } from './commands/bulk.js';
 import { VERSION } from '../version.js';
 
 export function createCli(): Command {
@@ -48,6 +49,7 @@ export function createCli(): Command {
   registerTaskActionsCli(program);
   registerTemplateCli(program);
   registerInfoCommand(program);
+  registerBulkCommand(program);
 
   return program;
 }

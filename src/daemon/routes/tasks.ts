@@ -34,6 +34,48 @@ export function registerTaskRoutes(
     },
   };
 
+  // Bulk operations
+  app.post<{ Body: { taskIds: string[]; action: 'delete' | 'pin' | 'unpin' | 'cancel' } }>('/tasks/bulk', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['taskIds', 'action'],
+        properties: {
+          taskIds: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 100 },
+          action: { type: 'string', enum: ['delete', 'pin', 'unpin', 'cancel'] },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request) => {
+    const { taskIds, action } = request.body;
+    let affected = 0;
+    for (const id of taskIds) {
+      switch (action) {
+        case 'delete':
+          if (executor.deleteTask(id)) affected++;
+          break;
+        case 'pin':
+          executor.pinTask(id); affected++;
+          break;
+        case 'unpin':
+          executor.unpinTask(id); affected++;
+          break;
+        case 'cancel':
+          if (executor.cancelTask(id)) affected++;
+          break;
+      }
+    }
+    return { action, requested: taskIds.length, affected };
+  });
+
+  // Search task output content
+  app.get<{ Querystring: { q: string; limit?: string } }>('/tasks/output/search', async (request, reply) => {
+    if (!request.query.q) return reply.status(400).send({ error: 'q parameter required' });
+    const limit = Math.min(parseInt(request.query.limit ?? '20', 10) || 20, 100);
+    return executor.searchOutput(request.query.q, limit);
+  });
+
   app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number; timeoutMs?: number; tags?: string[]; dependsOn?: string } }>(
     '/tasks',
     { schema: createTaskSchema },

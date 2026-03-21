@@ -210,6 +210,14 @@ export class TaskRepo {
     this.db.prepare('UPDATE tasks SET pinned = 0 WHERE task_id = ?').run(taskId);
   }
 
+  searchOutput(query: string, limit: number = 20): TaskDescriptor[] {
+    const escaped = query.replace(/[%_]/g, c => `\\${c}`);
+    const rows = this.db.prepare(
+      "SELECT * FROM tasks WHERE (stdout LIKE ? ESCAPE '\\' OR stderr LIKE ? ESCAPE '\\') ORDER BY created_at DESC LIMIT ?"
+    ).all(`%${escaped}%`, `%${escaped}%`, limit) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
   /** Purge completed/failed/cancelled tasks older than N days */
   purgeOlderThan(days: number): number {
     const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();

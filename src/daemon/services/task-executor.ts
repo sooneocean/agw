@@ -319,6 +319,10 @@ export class TaskExecutor extends EventEmitter {
     if (updates.priority !== undefined) this.taskRepo.updatePriority(taskId, updates.priority);
   }
 
+  searchOutput(query: string, limit?: number): TaskDescriptor[] {
+    return this.taskRepo.searchOutput(query, limit);
+  }
+
   pinTask(taskId: string): void { this.taskRepo.pin(taskId); }
   unpinTask(taskId: string): void { this.taskRepo.unpin(taskId); }
 
