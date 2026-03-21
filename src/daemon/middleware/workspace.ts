@@ -34,7 +34,6 @@ export function validateWorkspace(workingDirectory: string | undefined, allowedW
   }
 
   throw new Error(
-    `Working directory ${resolved} is outside allowed workspaces. ` +
-    `Allowed: ${allowedWorkspaces.join(', ')}`
+    `Working directory is outside allowed workspaces`
   );
 }

@@ -38,6 +38,28 @@ export interface PluginManifest {
 
 const PLUGIN_DIR = path.join(os.homedir(), '.agw', 'plugins');
 
+function validatePlugin(p: unknown): p is Plugin {
+  if (!p || typeof p !== 'object') return false;
+  const pl = p as Record<string, unknown>;
+  if (typeof pl.id !== 'string' || !pl.id || typeof pl.name !== 'string' || !pl.name) return false;
+  if (typeof pl.type !== 'string') return false;
+
+  switch (pl.type) {
+    case 'agent':
+      return typeof pl.command === 'string' && !!pl.command
+        && Array.isArray(pl.args)
+        && typeof pl.healthCheckCommand === 'string';
+    case 'combo':
+      return typeof pl.pattern === 'string'
+        && ['pipeline', 'map-reduce', 'review-loop', 'debate'].includes(pl.pattern as string)
+        && Array.isArray(pl.steps) && (pl.steps as unknown[]).length >= 2;
+    case 'router':
+      return typeof pl.keywords === 'object' && pl.keywords !== null;
+    default:
+      return false;
+  }
+}
+
 export function loadPlugins(): Plugin[] {
   const plugins: Plugin[] = [];
 
@@ -49,7 +71,9 @@ export function loadPlugins(): Plugin[] {
       const raw = fs.readFileSync(path.join(PLUGIN_DIR, file), 'utf-8');
       const manifest = JSON.parse(raw) as PluginManifest;
       if (Array.isArray(manifest.plugins)) {
-        plugins.push(...manifest.plugins);
+        for (const p of manifest.plugins) {
+          if (validatePlugin(p)) plugins.push(p);
+        }
       }
     } catch {
       // Skip malformed plugin files

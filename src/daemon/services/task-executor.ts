@@ -10,7 +10,7 @@ import { TaskQueue } from './task-queue.js';
 
 export class TaskExecutor extends EventEmitter {
   private taskQueue: TaskQueue;
-  private costRepo: CostRepo;
+  private costRepo: CostRepo | null;
   private dailyCostLimit?: number;
   private monthlyCostLimit?: number;
 
@@ -25,7 +25,7 @@ export class TaskExecutor extends EventEmitter {
     db?: Database.Database,
   ) {
     super();
-    this.costRepo = costRepo ?? (db ? new CostRepo(db) : null) as CostRepo;
+    this.costRepo = costRepo ?? (db ? new CostRepo(db) : null);
     this.dailyCostLimit = dailyCostLimit;
     this.monthlyCostLimit = monthlyCostLimit;
     this.taskQueue = new TaskQueue(taskRepo, maxConcurrencyPerAgent);
@@ -178,7 +178,7 @@ export class TaskExecutor extends EventEmitter {
     return this.taskRepo.list(limit, offset);
   }
 
-  getCostRepo(): CostRepo {
+  getCostRepo(): CostRepo | null {
     return this.costRepo;
   }
 }

@@ -59,10 +59,17 @@ export class WebhookManager {
     const maxRetries = hook.retries ?? 2;
     const timeout = hook.timeoutMs ?? 10_000;
 
+    const BLOCKED_HEADERS = new Set(['host', 'transfer-encoding', 'content-length', 'connection', 'upgrade', 'te', 'trailer']);
+    const safeHeaders: Record<string, string> = {};
+    if (hook.headers) {
+      for (const [k, v] of Object.entries(hook.headers)) {
+        if (!BLOCKED_HEADERS.has(k.toLowerCase())) safeHeaders[k] = v;
+      }
+    }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'User-Agent': 'AGW-Webhook/1.5',
-      ...hook.headers,
+      ...safeHeaders,
     };
 
     if (hook.secret) {

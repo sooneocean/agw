@@ -7,12 +7,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(__dirname, '..', '..', '..', 'ui');
 
 export default async function uiPlugin(app: FastifyInstance): Promise<void> {
+  const htmlPath = path.join(UI_DIR, 'index.html');
+  const cachedHtml = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, 'utf-8') : null;
+
   app.get('/ui', async (_request, reply) => {
-    const htmlPath = path.join(UI_DIR, 'index.html');
-    if (!fs.existsSync(htmlPath)) {
+    if (!cachedHtml) {
       return reply.status(404).send({ error: 'Web UI not found' });
     }
-    const html = fs.readFileSync(htmlPath, 'utf-8');
-    return reply.type('text/html').send(html);
+    return reply.type('text/html').send(cachedHtml);
   });
 }

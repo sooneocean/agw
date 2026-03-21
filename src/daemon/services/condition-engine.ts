@@ -66,10 +66,17 @@ export function evaluateCondition(condition: Condition, output: string, exitCode
       return output.length < (condition.value as number);
 
     case 'matches': {
-      const parts = String(condition.value).split('/');
+      const raw = String(condition.value);
+      if (raw.length > 200) throw new Error('Regex pattern too long (max 200 chars)');
+      const parts = raw.split('/');
       const pattern = parts[0];
       const flags = parts[1] ?? '';
-      return new RegExp(pattern, flags).test(output);
+      try {
+        // Test against truncated output to limit backtracking damage
+        return new RegExp(pattern, flags).test(output.slice(0, 50_000));
+      } catch {
+        return false;
+      }
     }
   }
 }

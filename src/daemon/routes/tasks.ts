@@ -150,8 +150,8 @@ export function registerTaskRoutes(
   });
 
   app.get<{ Querystring: { limit?: string; offset?: string } }>('/tasks', async (request) => {
-    const limit = parseInt(request.query.limit ?? '20', 10);
-    const offset = parseInt(request.query.offset ?? '0', 10);
+    const limit = Math.min(Math.max(parseInt(request.query.limit ?? '20', 10) || 20, 1), 200);
+    const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);
     return executor.listTasks(limit, offset);
   });
 }

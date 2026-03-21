@@ -17,6 +17,7 @@ export class StreamAggregator extends EventEmitter {
   private chunks: StreamChunk[] = [];
   private taskIds = new Set<string>();
   private completedTasks = new Set<string>();
+  private static readonly MAX_CHUNKS = 10_000;
 
   track(taskId: string, agentId?: string): void {
     this.taskIds.add(taskId);
@@ -27,6 +28,9 @@ export class StreamAggregator extends EventEmitter {
       taskId, source, content, timestamp: Date.now(), agentId,
     };
     this.chunks.push(chunk);
+    if (this.chunks.length > StreamAggregator.MAX_CHUNKS) {
+      this.chunks.shift();
+    }
     this.emit('chunk', chunk);
   }
 

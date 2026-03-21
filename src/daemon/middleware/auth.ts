@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHash } from 'node:crypto';
 
 function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
 }
 
 export function registerAuthMiddleware(app: FastifyInstance, authToken?: string): void {
@@ -25,7 +26,7 @@ export function registerAuthMiddleware(app: FastifyInstance, authToken?: string)
 
   app.addHook('onRequest', async (request, reply) => {
     // Skip auth for Web UI static page (auth handled client-side via header)
-    if (request.url === '/ui') return;
+    if (request.url === '/ui' || request.url.startsWith('/ui/')) return;
 
     const header = request.headers.authorization ?? '';
     if (!safeCompare(header, expected)) {

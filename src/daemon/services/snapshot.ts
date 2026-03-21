@@ -16,6 +16,21 @@ export interface SnapshotInfo {
   sizeBytes: number;
 }
 
+function sanitizeId(id: string): string {
+  // Strip path traversal characters — only allow alphanumeric, dash, underscore, dot
+  const sanitized = id.replace(/[^a-zA-Z0-9\-_.]/g, '').replace(/\.{2,}/g, '.'); // collapse consecutive dots
+  if (!sanitized || sanitized.startsWith('.')) throw new Error('Invalid snapshot id');
+  return sanitized;
+}
+
+function ensureWithinDir(filePath: string, dir: string): string {
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(path.resolve(dir) + path.sep) && resolved !== path.resolve(dir)) {
+    throw new Error('Path traversal detected');
+  }
+  return resolved;
+}
+
 export class SnapshotManager {
   private dbPath: string;
 
@@ -28,9 +43,10 @@ export class SnapshotManager {
 
   create(label?: string): SnapshotInfo {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const id = label ? `${label}-${timestamp}` : timestamp;
+    const rawId = label ? `${sanitizeId(label)}-${timestamp}` : timestamp;
+    const id = sanitizeId(rawId);
     const filename = `snapshot-${id}.db`;
-    const destPath = path.join(SNAPSHOT_DIR, filename);
+    const destPath = ensureWithinDir(path.join(SNAPSHOT_DIR, filename), SNAPSHOT_DIR);
 
     fs.copyFileSync(this.dbPath, destPath);
 
@@ -44,8 +60,9 @@ export class SnapshotManager {
   }
 
   restore(id: string): boolean {
-    const filename = `snapshot-${id}.db`;
-    const srcPath = path.join(SNAPSHOT_DIR, filename);
+    const safeId = sanitizeId(id);
+    const filename = `snapshot-${safeId}.db`;
+    const srcPath = ensureWithinDir(path.join(SNAPSHOT_DIR, filename), SNAPSHOT_DIR);
     if (!fs.existsSync(srcPath)) return false;
 
     // Backup current before overwriting
@@ -73,8 +90,9 @@ export class SnapshotManager {
   }
 
   delete(id: string): boolean {
-    const filename = `snapshot-${id}.db`;
-    const filePath = path.join(SNAPSHOT_DIR, filename);
+    const safeId = sanitizeId(id);
+    const filename = `snapshot-${safeId}.db`;
+    const filePath = ensureWithinDir(path.join(SNAPSHOT_DIR, filename), SNAPSHOT_DIR);
     if (!fs.existsSync(filePath)) return false;
     fs.unlinkSync(filePath);
     return true;

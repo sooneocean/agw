@@ -15,6 +15,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 };
 
 export class LlmRouter {
+  private cachedCreateFn?: CreateMessageFn;
+
   constructor(
     private apiKey: string,
     private model: string,
@@ -56,7 +58,10 @@ ${agentList}
 
 Return ONLY valid JSON: { "agentId": "...", "reason": "...", "confidence": 0.0-1.0 }`;
 
-    const createFn = this.createMessage ?? this.getDefaultCreateFn();
+    if (!this.cachedCreateFn) {
+      this.cachedCreateFn = this.createMessage ?? this.getDefaultCreateFn();
+    }
+    const createFn = this.cachedCreateFn;
 
     const response = await createFn({
       model: this.model,

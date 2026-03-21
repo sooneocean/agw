@@ -3,6 +3,8 @@ import type { TemplateEngine, TaskTemplate, InstantiateRequest } from '../servic
 import type { TaskExecutor } from '../services/task-executor.js';
 import type { LlmRouter } from '../../router/llm-router.js';
 import type { AgentManager } from '../services/agent-manager.js';
+import type { AppConfig } from '../../types.js';
+import { validateWorkspace } from '../middleware/workspace.js';
 
 export function registerTemplateRoutes(
   app: FastifyInstance,
@@ -10,6 +12,7 @@ export function registerTemplateRoutes(
   executor: TaskExecutor,
   router: LlmRouter,
   agentManager: AgentManager,
+  config?: AppConfig,
 ): void {
   // List templates
   app.get<{ Querystring: { tag?: string } }>('/templates', async (request) => {
@@ -24,7 +27,25 @@ export function registerTemplateRoutes(
   });
 
   // Register custom template
-  app.post<{ Body: TaskTemplate }>('/templates', async (request, reply) => {
+  app.post<{ Body: TaskTemplate }>('/templates', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['id', 'name', 'description', 'prompt', 'params'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 100 },
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          description: { type: 'string', maxLength: 1000 },
+          prompt: { type: 'string', minLength: 1, maxLength: 100000 },
+          agent: { type: 'string' },
+          priority: { type: 'integer', minimum: 1, maximum: 5 },
+          params: { type: 'array', maxItems: 20 },
+          tags: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
     templateEngine.register(request.body);
     return reply.status(201).send(request.body);
   });
@@ -42,11 +63,16 @@ export function registerTemplateRoutes(
       const { prompt, agent, priority } = templateEngine.instantiate(request.body);
       const availableAgents = agentManager.getAvailableAgents();
 
+      let workingDirectory = request.body.overrides?.workingDirectory;
+      if (workingDirectory && config) {
+        workingDirectory = validateWorkspace(workingDirectory, config.allowedWorkspaces);
+      }
+
       const task = await executor.execute(
         {
           prompt,
           preferredAgent: agent ?? request.body.overrides?.agent,
-          workingDirectory: request.body.overrides?.workingDirectory,
+          workingDirectory,
           priority,
         },
         async (p) => router.route(p, availableAgents, agent),

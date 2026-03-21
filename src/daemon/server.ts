@@ -76,7 +76,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   templateEngine.seedDefaults();
   const webhookManager = new WebhookManager();
   const scheduler = new Scheduler();
-  const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager);
+  const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager, config.allowedWorkspaces);
   const capDiscovery = new CapabilityDiscovery();
   const snapshotManager = new SnapshotManager(dbPath);
 
@@ -94,7 +94,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerComboRoutes(app, comboExecutor, config);
   registerMemoryRoutes(app, memoryRepo);
   registerHealthRoutes(app, metrics, agentManager, cbRegistry, taskRepo, costRepo, config);
-  registerTemplateRoutes(app, templateEngine, executor, router, agentManager);
+  registerTemplateRoutes(app, templateEngine, executor, router, agentManager, config);
   registerWebhookRoutes(app, webhookManager);
   registerSchedulerRoutes(app, scheduler);
   registerReplayRoutes(app, replayManager);
@@ -108,7 +108,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   agentManager.runHealthChecks().catch(() => {});
 
   app.addHook('onClose', async () => {
-    const runningTasks = taskRepo.list(100, 0).filter(t => t.status === 'running');
+    const runningTasks = taskRepo.listByStatus('running');
     for (const t of runningTasks) {
       taskRepo.updateStatus(t.taskId, 'failed');
       auditRepo.log(t.taskId, 'task.failed', { reason: 'daemon shutdown' });

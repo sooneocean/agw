@@ -23,4 +23,34 @@ describe('Export/Import', () => {
     expect(validateImport({})).toBe(false);
     expect(validateImport({ version: '1.0' })).toBe(false);
   });
+
+  it('rejects invalid templates in import', () => {
+    expect(validateImport({
+      version: '1.6.0', exportedAt: '2026-01-01',
+      templates: [{ bad: true }], memory: [],
+    })).toBe(false);
+  });
+
+  it('rejects invalid memory entries in import', () => {
+    expect(validateImport({
+      version: '1.6.0', exportedAt: '2026-01-01',
+      templates: [], memory: [{ notKey: 1 }],
+    })).toBe(false);
+  });
+
+  it('rejects invalid scheduled jobs in import', () => {
+    expect(validateImport({
+      version: '1.6.0', exportedAt: '2026-01-01',
+      templates: [], memory: [],
+      scheduledJobs: [{ name: 'x', type: 'invalid', target: 'y', interval: 'bad', enabled: true }],
+    })).toBe(false);
+  });
+
+  it('accepts valid scheduled jobs in import', () => {
+    expect(validateImport({
+      version: '1.6.0', exportedAt: '2026-01-01',
+      templates: [], memory: [],
+      scheduledJobs: [{ name: 'x', type: 'task', target: 'y', interval: 'every 5m', enabled: true }],
+    })).toBe(true);
+  });
 });

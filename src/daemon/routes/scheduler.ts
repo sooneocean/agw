@@ -10,8 +10,27 @@ export function registerSchedulerRoutes(app: FastifyInstance, scheduler: Schedul
     return job;
   });
 
-  app.post('/scheduler/jobs', async (request, reply) => {
-    const body = request.body as any;
+  app.post('/scheduler/jobs', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'type', 'target', 'interval', 'enabled'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          type: { type: 'string', enum: ['task', 'combo-preset', 'template'] },
+          target: { type: 'string', minLength: 1, maxLength: 10000 },
+          params: { type: 'object' },
+          interval: { type: 'string', pattern: '^every\\s+\\d+\\s*[smhd]$' },
+          agent: { type: 'string' },
+          priority: { type: 'integer', minimum: 1, maximum: 5 },
+          workingDirectory: { type: 'string' },
+          enabled: { type: 'boolean' },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
+    const body = request.body as Parameters<typeof scheduler.addJob>[0];
     try {
       const job = scheduler.addJob(body);
       return reply.status(201).send(job);

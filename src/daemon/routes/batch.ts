@@ -13,14 +13,34 @@ export function registerBatchRoutes(
 ): void {
   const batchExecutor = new BatchExecutor();
 
-  app.post<{ Body: { items: BatchItem[]; concurrency?: number } }>('/batch', async (request, reply) => {
+  app.post<{ Body: { items: BatchItem[]; concurrency?: number } }>('/batch', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 50,
+            items: {
+              type: 'object',
+              required: ['prompt'],
+              properties: {
+                prompt: { type: 'string', minLength: 1, maxLength: 100000 },
+                agent: { type: 'string' },
+                priority: { type: 'integer', minimum: 1, maximum: 5 },
+              },
+              additionalProperties: false,
+            },
+          },
+          concurrency: { type: 'integer', minimum: 1, maximum: 10, default: 5 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
     const { items, concurrency } = request.body;
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return reply.status(400).send({ error: 'items array is required' });
-    }
-    if (items.length > 50) {
-      return reply.status(400).send({ error: 'Maximum 50 items per batch' });
-    }
 
     const result = await batchExecutor.execute(
       items,

@@ -73,7 +73,8 @@ export class TemplateEngine {
     let prompt = template.prompt;
     for (const param of template.params) {
       const value = request.params[param.name] ?? param.default ?? '';
-      prompt = prompt.replace(new RegExp(`\\{\\{param\\.${param.name}\\}\\}`, 'g'), value);
+      const escapedName = param.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      prompt = prompt.replace(new RegExp(`\\{\\{param\\.${escapedName}\\}\\}`, 'g'), value);
     }
 
     return {

@@ -17,8 +17,13 @@ export interface WsClient {
 export class WsManager extends EventEmitter {
   private clients = new Map<string, WsClient>();
   private nextId = 0;
+  private static readonly MAX_CLIENTS = 100;
+  private static readonly MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
 
   addClient(send: (data: string) => void, close: () => void): string {
+    if (this.clients.size >= WsManager.MAX_CLIENTS) {
+      throw new Error('Maximum WebSocket connections reached');
+    }
     const id = `ws-${++this.nextId}`;
     this.clients.set(id, { id, subscriptions: new Set(), send, close });
     this.emit('client:connect', id);
@@ -32,7 +37,9 @@ export class WsManager extends EventEmitter {
 
   subscribe(clientId: string, taskId: string): void {
     const client = this.clients.get(clientId);
-    if (client) client.subscriptions.add(taskId);
+    if (client && client.subscriptions.size < WsManager.MAX_SUBSCRIPTIONS_PER_CLIENT) {
+      client.subscriptions.add(taskId);
+    }
   }
 
   unsubscribe(clientId: string, taskId: string): void {

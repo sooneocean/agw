@@ -68,12 +68,21 @@ export function registerComboRoutes(
         return reply.status(400).send({ error: 'input is required' });
       }
 
+      let validatedDir = workingDirectory;
+      if (validatedDir) {
+        try {
+          validatedDir = validateWorkspace(validatedDir, config.allowedWorkspaces);
+        } catch (err) {
+          return reply.status(400).send({ error: (err as Error).message });
+        }
+      }
+
       const comboId = comboExecutor.start({
         name: preset.name,
         pattern: preset.pattern,
         steps: preset.steps,
         input,
-        workingDirectory,
+        workingDirectory: validatedDir,
         priority,
         maxIterations: preset.maxIterations,
       });
@@ -96,8 +105,8 @@ export function registerComboRoutes(
 
   // List combos
   app.get<{ Querystring: { limit?: string; offset?: string } }>('/combos', async (request) => {
-    const limit = parseInt(request.query.limit ?? '20', 10);
-    const offset = parseInt(request.query.offset ?? '0', 10);
+    const limit = Math.min(Math.max(parseInt(request.query.limit ?? '20', 10) || 20, 1), 200);
+    const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);
     return comboExecutor.listCombos(limit, offset);
   });
 }

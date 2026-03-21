@@ -116,6 +116,13 @@ export class TaskRepo {
     return rows.map(rowToTask);
   }
 
+  listByStatus(status: TaskStatus): TaskDescriptor[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC'
+    ).all(status) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
   countByStatus(): Record<string, number> {
     const rows = this.db.prepare(
       'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'

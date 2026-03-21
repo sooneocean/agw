@@ -30,9 +30,12 @@ export function parseInterval(expr: string): number {
   if (!match) throw new Error(`Invalid interval: "${expr}". Use "every Ns/m/h/d"`);
 
   const value = parseInt(match[1], 10);
+  if (value <= 0) throw new Error(`Interval value must be positive, got ${value}`);
   const unit = match[2].toLowerCase();
   const multipliers: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-  return value * multipliers[unit];
+  const ms = value * multipliers[unit];
+  if (ms < 10_000) throw new Error(`Minimum interval is 10s, got ${ms}ms`);
+  return ms;
 }
 
 export class Scheduler extends EventEmitter {

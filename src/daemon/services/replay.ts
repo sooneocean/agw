@@ -2,13 +2,14 @@
  * Replay — re-run a completed/failed task or combo with the same parameters.
  */
 
-import type { TaskDescriptor, ComboDescriptor, CreateComboRequest } from '../../types.js';
+import type { TaskDescriptor, ComboDescriptor, CreateComboRequest, AppConfig } from '../../types.js';
 import type { TaskExecutor } from './task-executor.js';
 import type { ComboExecutor } from './combo-executor.js';
 import type { TaskRepo } from '../../store/task-repo.js';
 import type { ComboRepo } from '../../store/combo-repo.js';
 import type { LlmRouter } from '../../router/llm-router.js';
 import type { AgentManager } from './agent-manager.js';
+import { validateWorkspace } from '../middleware/workspace.js';
 
 export class ReplayManager {
   constructor(
@@ -18,18 +19,25 @@ export class ReplayManager {
     private comboExecutor: ComboExecutor,
     private router: LlmRouter,
     private agentManager: AgentManager,
+    private allowedWorkspaces?: string[],
   ) {}
 
   async replayTask(taskId: string): Promise<TaskDescriptor> {
     const original = this.taskRepo.getById(taskId);
     if (!original) throw new Error(`Task ${taskId} not found`);
 
+    // Re-validate workspace against current config
+    let workingDir = original.workingDirectory;
+    if (this.allowedWorkspaces && this.allowedWorkspaces.length > 0) {
+      workingDir = validateWorkspace(workingDir, this.allowedWorkspaces);
+    }
+
     const availableAgents = this.agentManager.getAvailableAgents();
     return this.taskExecutor.execute(
       {
         prompt: original.prompt,
         preferredAgent: original.assignedAgent,
-        workingDirectory: original.workingDirectory,
+        workingDirectory: workingDir,
         priority: original.priority,
       },
       async (p) => this.router.route(p, availableAgents, original.assignedAgent),
@@ -46,6 +54,7 @@ export class ReplayManager {
       steps: original.steps,
       input: original.input,
       maxIterations: original.maxIterations,
+      // Note: ComboDescriptor doesn't store workingDirectory, so replay uses daemon's cwd
     };
 
     return this.comboExecutor.start(request);

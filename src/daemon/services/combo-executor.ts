@@ -263,7 +263,6 @@ export class ComboExecutor extends EventEmitter {
 
     if (!approved) {
       // Max iterations reached without approval — use last implementation
-      const combo = this.comboRepo.getById(comboId);
       this.comboRepo.setFinalOutput(comboId, `[Max iterations (${maxIter}) reached without approval]\n\n${stepResults[0] ?? ''}`);
     }
   }
