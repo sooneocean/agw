@@ -5,6 +5,39 @@ import { ComboRepo } from '../../store/combo-repo.js';
 import { AuditRepo } from '../../store/audit-repo.js';
 import type { TaskExecutor } from './task-executor.js';
 import type { AgentManager } from './agent-manager.js';
+import { createLogger } from '../../logger.js';
+const log = createLogger('combo-executor');
+
+export interface ReviewVerdict {
+  verdict: 'APPROVED' | 'REJECTED';
+  feedback?: string;
+}
+
+export function parseReviewOutput(output: string): ReviewVerdict {
+  const jsonMatch = output.match(/\{[\s\S]*?"verdict"[\s\S]*?\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.verdict === 'APPROVED' || parsed.verdict === 'REJECTED') {
+        return { verdict: parsed.verdict, feedback: parsed.feedback };
+      }
+    } catch { /* fallback to string matching */ }
+  }
+  const upper = output.toUpperCase();
+  return {
+    verdict: upper.includes('APPROVED') ? 'APPROVED' : 'REJECTED',
+    feedback: output,
+  };
+}
+
+interface MapStepResult {
+  step: number;
+  agentId: string;
+  output?: string;
+  error?: boolean;
+  message?: string;
+  retried?: boolean;
+}
 
 // Interpolate template variables: {{input}}, {{prev}}, {{step.N}}, {{all}}
 export function interpolate(template: string, context: { input: string; prev?: string; stepResults: Record<number, string> }): string {
@@ -57,7 +90,7 @@ export const COMBO_PRESETS: ComboPreset[] = [
     pattern: 'review-loop',
     steps: [
       { agent: 'codex', role: 'implementer', prompt: '{{input}}\n\n{{prev}}' },
-      { agent: 'claude', role: 'reviewer', prompt: 'Review this code. If it\'s acceptable, respond with exactly "APPROVED". If not, explain what needs to change.\n\nOriginal request: {{input}}\n\nImplementation:\n{{prev}}' },
+      { agent: 'claude', role: 'reviewer', prompt: 'Review this code for correctness, security, and quality.\n\nOriginal request: {{input}}\n\nImplementation:\n{{prev}}\n\nReply with JSON: {"verdict": "APPROVED" or "REJECTED", "feedback": "your review comments"}' },
     ],
     maxIterations: 3,
   },
@@ -203,32 +236,71 @@ export class ComboExecutor extends EventEmitter {
     this.comboRepo.setFinalOutput(comboId, prev);
   }
 
-  /** Map-Reduce: all steps except last run in parallel, last step gets all results */
+  /** Map-Reduce: all steps except last run in parallel with retry, last step synthesizes */
   private async executeMapReduce(comboId: string, request: CreateComboRequest): Promise<void> {
     const mapSteps = request.steps.slice(0, -1);
     const reduceStep = request.steps[request.steps.length - 1];
     const stepResults: Record<number, string> = {};
 
     // Map phase: run all map steps in parallel
+    log.info({ comboId, phase: 'map', count: mapSteps.length }, 'starting map phase');
     this.auditRepo.log(null, 'combo.step', { comboId, phase: 'map', count: mapSteps.length });
 
     const mapPromises = mapSteps.map(async (step, i) => {
       const prompt = interpolate(step.prompt, { input: request.input, stepResults });
       const task = await this.executeStep(comboId, step.agent, prompt, request);
-      const output = task.result?.stdout ?? '';
-      stepResults[i] = output;
       this.comboRepo.addTaskId(comboId, task.taskId);
-      this.comboRepo.setStepResult(comboId, i, output);
-      return task;
+      if (task.status === 'failed') throw new Error(`Step ${i} failed: exit code ${task.result?.exitCode}`);
+      return { step: i, agent: step.agent, role: step.role, task };
     });
 
-    const mapResults = await Promise.all(mapPromises);
-    const failed = mapResults.filter(t => t.status === 'failed');
-    if (failed.length > 0) {
-      throw new Error(`Map phase: ${failed.length} step(s) failed`);
+    const settled = await Promise.allSettled(mapPromises);
+
+    // Process results: retry failures once, then mark as error
+    const results: MapStepResult[] = [];
+    for (const [i, outcome] of settled.entries()) {
+      const step = mapSteps[i];
+      if (outcome.status === 'fulfilled') {
+        const output = outcome.value.task.result?.stdout ?? '';
+        stepResults[i] = output;
+        this.comboRepo.setStepResult(comboId, i, output);
+        results.push({ step: i, agentId: step.agent, output });
+      } else {
+        // Retry once with same agent
+        log.warn({ comboId, step: i, agent: step.agent }, 'map step failed, retrying');
+        try {
+          const prompt = interpolate(step.prompt, { input: request.input, stepResults });
+          const retryTask = await this.executeStep(comboId, step.agent, prompt, request);
+          this.comboRepo.addTaskId(comboId, retryTask.taskId);
+          if (retryTask.status === 'failed') throw new Error('Retry also failed');
+          const output = retryTask.result?.stdout ?? '';
+          stepResults[i] = output;
+          this.comboRepo.setStepResult(comboId, i, output);
+          results.push({ step: i, agentId: step.agent, output, retried: true });
+        } catch (retryErr) {
+          log.error({ comboId, step: i, error: (retryErr as Error).message }, 'map step retry failed');
+          const errorMarker = `[ERROR: Step ${i} (${step.role ?? step.agent}) failed after retry: ${(retryErr as Error).message}]`;
+          stepResults[i] = errorMarker;
+          this.comboRepo.setStepResult(comboId, i, errorMarker);
+          results.push({ step: i, agentId: step.agent, error: true, message: (retryErr as Error).message, retried: true });
+        }
+      }
     }
 
-    // Reduce phase: synthesize all map results
+    const successes = results.filter(r => !r.error);
+    const failures = results.filter(r => r.error);
+
+    if (successes.length === 0) {
+      throw new Error(`Map phase: all ${results.length} step(s) failed after retry`);
+    }
+
+    if (failures.length > 0) {
+      log.warn({ comboId, failed: failures.length, total: results.length }, 'map phase partial success');
+      this.auditRepo.log(null, 'combo.partial', { comboId, failed: failures.length, total: results.length });
+    }
+
+    // Reduce phase: synthesize all results (including error markers)
+    log.info({ comboId, phase: 'reduce', agent: reduceStep.agent }, 'starting reduce phase');
     this.auditRepo.log(null, 'combo.step', { comboId, phase: 'reduce', agent: reduceStep.agent });
 
     const reducePrompt = interpolate(reduceStep.prompt, { input: request.input, stepResults });
@@ -280,7 +352,8 @@ export class ComboExecutor extends EventEmitter {
       }
 
       // Check for approval
-      if (reviewOutput.toUpperCase().includes('APPROVED')) {
+      const verdict = parseReviewOutput(reviewOutput);
+      if (verdict.verdict === 'APPROVED') {
         approved = true;
         stepResults[0] = implOutput;
         stepResults[1] = reviewOutput;

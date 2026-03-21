@@ -17,6 +17,8 @@ import { TaskExecutor } from './services/task-executor.js';
 import { WorkflowExecutor } from './services/workflow-executor.js';
 import { ComboExecutor } from './services/combo-executor.js';
 import { LlmRouter } from '../router/llm-router.js';
+import { RouteHistory } from '../router/route-history.js';
+import { AutoScaler } from './services/auto-scaler.js';
 import { MetricsCollector } from './services/metrics.js';
 import { CircuitBreakerRegistry } from './services/circuit-breaker.js';
 import { TemplateEngine } from './services/template-engine.js';
@@ -75,12 +77,18 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const noteRepo = new NoteRepo(db);
 
   const agentManager = new AgentManager(agentRepo, auditRepo, config);
+  const routeHistory = new RouteHistory(db);
+  const router = new LlmRouter(config.anthropicApiKey, config.routerModel, {
+    routeHistory,
+  });
+  const autoScaler = new AutoScaler();
   const executor = new TaskExecutor(
     taskRepo, auditRepo, agentManager, costRepo,
     config.maxConcurrencyPerAgent,
     config.dailyCostLimit, config.monthlyCostLimit, db,
+    autoScaler,
+    (prompt: string, agentId: string, success: boolean) => router.recordOutcome(prompt, agentId, success),
   );
-  const router = new LlmRouter(config.anthropicApiKey, config.routerModel);
   const workflowExecutor = new WorkflowExecutor(workflowRepo, auditRepo, executor, router, agentManager);
   const comboExecutor = new ComboExecutor(comboRepo, auditRepo, executor, agentManager);
   const metrics = new MetricsCollector();

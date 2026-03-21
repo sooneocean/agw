@@ -33,6 +33,8 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
       let stderr = '';
       let stdoutTruncated = false;
       let stderrTruncated = false;
+      let stdoutTruncationWarned = false;
+      let stderrTruncationWarned = false;
       let killed = false;
 
       const command = this.commandOverride ?? descriptor.command;
@@ -56,9 +58,17 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
           if (stdout.length > this.maxBufferSize) {
             stdout = stdout.slice(stdout.length - this.maxBufferSize);
             stdoutTruncated = true;
+            if (!stdoutTruncationWarned) {
+              this.emit('truncated', 'stdout', this.maxBufferSize);
+              stdoutTruncationWarned = true;
+            }
           }
         } else {
           stdoutTruncated = true;
+          if (!stdoutTruncationWarned) {
+            this.emit('truncated', 'stdout', this.maxBufferSize);
+            stdoutTruncationWarned = true;
+          }
         }
       });
 
@@ -70,9 +80,17 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
           if (stderr.length > this.maxBufferSize) {
             stderr = stderr.slice(stderr.length - this.maxBufferSize);
             stderrTruncated = true;
+            if (!stderrTruncationWarned) {
+              this.emit('truncated', 'stderr', this.maxBufferSize);
+              stderrTruncationWarned = true;
+            }
           }
         } else {
           stderrTruncated = true;
+          if (!stderrTruncationWarned) {
+            this.emit('truncated', 'stderr', this.maxBufferSize);
+            stderrTruncationWarned = true;
+          }
         }
       });
 

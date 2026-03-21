@@ -7,6 +7,9 @@ import { AuditRepo } from '../../store/audit-repo.js';
 import { CostRepo } from '../../store/cost-repo.js';
 import { AgentManager } from './agent-manager.js';
 import { TaskQueue } from './task-queue.js';
+import type { AutoScaler } from './auto-scaler.js';
+import { createLogger } from '../../logger.js';
+const log = createLogger('task-executor');
 
 export class TaskExecutor extends EventEmitter {
   private taskQueue: TaskQueue;
@@ -24,6 +27,8 @@ export class TaskExecutor extends EventEmitter {
     dailyCostLimit?: number,
     monthlyCostLimit?: number,
     db?: Database.Database,
+    private autoScaler?: AutoScaler,
+    private onTaskComplete?: (prompt: string, agentId: string, success: boolean) => void,
   ) {
     super();
     this.costRepo = costRepo ?? (db ? new CostRepo(db) : null);
@@ -148,8 +153,16 @@ export class TaskExecutor extends EventEmitter {
       this.emit('task:status', taskId, { status: 'running', agentId, reason: routingReason });
       const onStdout = (...args: unknown[]) => this.emit('task:stdout', taskId, String(args[0]));
       const onStderr = (...args: unknown[]) => this.emit('task:stderr', taskId, String(args[0]));
+      const onTruncated = (...args: unknown[]) => {
+        const stream = String(args[0]);
+        const bytes = Number(args[1]);
+        log.warn({ taskId, stream, bytes }, 'output truncated');
+        this.auditRepo.log(taskId, 'task.truncated', { stream, bytes });
+        this.emit('task:truncated', taskId, stream, bytes);
+      };
       adapter.on('stdout', onStdout);
       adapter.on('stderr', onStderr);
+      adapter.on('truncated', onTruncated);
 
       // Set up abort controller for cancellation
       const ac = new AbortController();
@@ -198,11 +211,26 @@ export class TaskExecutor extends EventEmitter {
         }
 
         this.emit('task:done', taskId, result);
+        if (this.onTaskComplete) {
+          this.onTaskComplete(request.prompt, agentId, result.exitCode === 0);
+        }
+
+        // Auto-scale after task completion
+        if (this.autoScaler) {
+          const agentQueueDepth = this.taskQueue.getQueueDepth(agentId);
+          const errorRate = this.taskQueue.getErrorRate(agentId);
+          const decision = this.autoScaler.evaluate(agentId, agentQueueDepth, errorRate);
+          if (decision.action !== 'hold') {
+            this.taskQueue.updateConcurrency(agentId, decision.newConcurrency);
+            log.info({ agentId, action: decision.action, newConcurrency: decision.newConcurrency, reason: decision.reason }, 'auto-scaled');
+          }
+        }
       } finally {
         if (timeoutTimer) clearTimeout(timeoutTimer);
         this.activeAbortControllers.delete(taskId);
         adapter.removeListener('stdout', onStdout);
         adapter.removeListener('stderr', onStderr);
+        adapter.removeListener('truncated', onTruncated);
       }
     };
 
@@ -213,6 +241,7 @@ export class TaskExecutor extends EventEmitter {
           await executeTask();
           resolve(this.taskRepo.getById(taskId)!);
         } catch (err) {
+          this.taskQueue.recordError(agentId);
           this.taskRepo.updateStatus(taskId, 'failed');
           this.auditRepo.log(taskId, 'task.failed', { error: (err as Error).message });
           resolve(this.taskRepo.getById(taskId)!);

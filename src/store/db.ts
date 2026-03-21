@@ -156,6 +156,20 @@ CREATE TABLE IF NOT EXISTS task_notes (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_cost_task_id ON cost_records(task_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_workflow_id ON tasks(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
+
+CREATE TABLE IF NOT EXISTS route_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prompt_hash TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  success INTEGER NOT NULL,
+  confidence REAL NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_route_prompt ON route_history(prompt_hash);
 `;
 
 const SEED_AGENTS = [
@@ -174,6 +188,17 @@ export function createDatabase(dbPath: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+
+  // Migration: add status column to cost_records
+  try {
+    db.exec(`ALTER TABLE cost_records ADD COLUMN status TEXT DEFAULT 'recorded'`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_cost_status ON cost_records(status)`);
+  } catch { /* column may not exist on very old DBs */ }
 
   // Seed agents if table is empty
   const count = db.prepare('SELECT COUNT(*) as cnt FROM agents').get() as { cnt: number };

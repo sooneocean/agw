@@ -91,7 +91,10 @@ export type AuditEventType =
   | 'combo.completed'
   | 'combo.failed'
   | 'task.cancelled'
-  | 'task.timeout';
+  | 'task.timeout'
+  | 'task.truncated'
+  | 'combo.partial'
+  | 'routing.low_confidence';
 
 // Workflow types
 export type WorkflowStatus = 'pending' | 'running' | 'completed' | 'failed';
