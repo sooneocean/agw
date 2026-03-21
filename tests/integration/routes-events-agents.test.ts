@@ -27,15 +27,15 @@ describe('Events & Agent management routes', () => {
     // SSE endpoints stream forever, so we can't use inject().
     // Instead, verify the route is registered by checking a quick connection.
     const addr = await app.listen({ port: 0, host: '127.0.0.1' });
-    const port = (app.server.address() as any).port;
+    const port = (app.server.address() as import('node:net').AddressInfo).port;
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 500);
     try {
       const res = await fetch(`http://127.0.0.1:${port}/events`, { signal: controller.signal });
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('text/event-stream');
-    } catch (err: any) {
-      if (err.name !== 'AbortError') throw err;
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') throw err;
       // AbortError is expected — we intentionally aborted after confirming headers
     }
   });

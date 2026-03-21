@@ -107,6 +107,7 @@ export function registerWebhookRoutes(app: FastifyInstance, webhookManager: Webh
         properties: {
           url: { type: 'string' },
         },
+        additionalProperties: false,
       },
     },
   }, async (request) => {

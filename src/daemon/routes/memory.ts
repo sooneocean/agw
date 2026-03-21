@@ -33,6 +33,7 @@ export function registerMemoryRoutes(app: FastifyInstance, memoryRepo: MemoryRep
           properties: {
             key: { type: 'string', minLength: 1, maxLength: 500 },
           },
+          additionalProperties: false,
         },
       },
     },
