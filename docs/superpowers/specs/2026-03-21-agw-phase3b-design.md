@@ -27,16 +27,27 @@
 
 ### 改為
 
-`LlmRouter` 新增 `confidenceThreshold` 參數（預設 0.5）：
+`LlmRouter` 改用 options object 避免 constructor 參數爆炸：
 
 ```ts
+interface LlmRouterOptions {
+  createMessage?: CreateMessageFn;
+  confidenceThreshold?: number;  // 預設 0.5
+  routeHistory?: RouteHistory;   // Phase 3B-G 加入
+}
+
 constructor(
   private apiKey: string,
   private model: string,
-  private createMessage?: CreateMessageFn,
-  private confidenceThreshold: number = 0.5,
-) {}
+  private opts: LlmRouterOptions = {},
+) {
+  // this.confidenceThreshold = opts.confidenceThreshold ?? 0.5;
+  // this.routeHistory = opts.routeHistory;
+  // this.createMessage = opts.createMessage;
+}
 ```
+
+**注意：** 此重構會改變 `server.ts` 和測試中所有 `new LlmRouter(...)` 的呼叫方式。
 
 **route() 流程：**
 ```
@@ -91,8 +102,10 @@ export class RouteHistory {
     // SELECT agent_id, SUM(success), COUNT(*) GROUP BY agent_id WHERE prompt_hash = ?
   }
 
-  suggest(promptHash: string, availableAgents: string[]): RouteDecision | null {
-    // 查詢 history，選成功率最高且 total >= 3 的 agent
+  suggest(promptHash: string, availableAgents: string[], minSamples: number = 3): RouteDecision | null {
+    // 查詢 history，選成功率最高且 total >= minSamples 的 agent
+    // minSamples 預設 3：需至少 3 次相同 prefix 的歷史才會推薦
+    // 理由：1-2 次太少可能是偶然，3 次提供基本統計信心
     // 無足夠記錄 → return null
   }
 }
@@ -100,7 +113,7 @@ export class RouteHistory {
 
 ### Prompt Hash
 
-取 prompt 前 200 字元做簡單 hash（使用 Node.js `crypto.createHash('sha256')`）。相似 prompt 共享學習結果。
+取 prompt 前 200 字元做 SHA-256 hash。**注意：這是前綴完全相同的 prompt 共享學習結果（prefix-identity），不是語義相似度。**
 
 ```ts
 import { createHash } from 'node:crypto';
@@ -125,27 +138,60 @@ export function hashPrompt(prompt: string): string {
 5. keyword fallback（LLM 失敗）
 ```
 
-### 學習記錄點
+### 學習記錄 — 由 LlmRouter 自己處理（單一 owner）
 
-`task-executor.ts` 在 task 完成/失敗時：
+**不由 TaskExecutor 記錄**（避免 routeHistory 同時穿透 Router 和 Executor）。改為 LlmRouter 提供 callback：
 
 ```ts
-// After task completion:
-if (this.routeHistory) {
-  const hash = hashPrompt(request.prompt);
-  const success = result.exitCode === 0;
-  this.routeHistory.record(hash, agentId, success, routingConfidence);
+// LlmRouter 新增方法
+recordOutcome(prompt: string, agentId: string, success: boolean): void {
+  if (!this.routeHistory) return;
+  const hash = hashPrompt(prompt);
+  // confidence 從 route() 時的快取取得
+  const confidence = this.lastConfidence.get(hash) ?? 0.5;
+  this.routeHistory.record(hash, agentId, success, confidence);
 }
+```
+
+**LlmRouter.route() 在返回前快取 confidence：**
+```ts
+// 在 route() 中：
+this.lastConfidence.set(hashPrompt(prompt), decision.confidence);
+```
+
+`private lastConfidence = new Map<string, number>();`（最多保留 1000 entries，LRU 清理）
+
+**TaskExecutor 只需呼叫 router：**
+```ts
+// task 完成後：
+if (this.router) {
+  this.router.recordOutcome(request.prompt, agentId, result.exitCode === 0);
+}
+```
+
+TaskExecutor 已有 `routeFn` 參數，但 `recordOutcome` 需要 router instance。改為 TaskExecutor 新增 optional `onTaskComplete` callback，由 server.ts 注入：
+
+```ts
+// server.ts:
+const executor = new TaskExecutor(
+  taskRepo, auditRepo, agentManager, costRepo,
+  config.maxConcurrencyPerAgent,
+  config.dailyCostLimit, config.monthlyCostLimit, db,
+  autoScaler,
+  // onTaskComplete callback:
+  (prompt, agentId, success) => router.recordOutcome(prompt, agentId, success),
+);
 ```
 
 ### server.ts 注入
 
 ```ts
 const routeHistory = new RouteHistory(db);
-const router = new LlmRouter(config.anthropicApiKey, config.routerModel, undefined, 0.5, routeHistory);
+const router = new LlmRouter(config.anthropicApiKey, config.routerModel, {
+  confidenceThreshold: 0.5,
+  routeHistory,
+});
 ```
-
-`TaskExecutor` 也需接收 `routeHistory` 參數。
 
 ### 影響範圍
 
@@ -170,5 +216,5 @@ const router = new LlmRouter(config.anthropicApiKey, config.routerModel, undefin
 - 不加使用者 explicit rating（YAGNI）
 - 不改 keyword router 規則
 - 不加 prompt embedding / 語義相似度
-- 不加 history 清理 / TTL
+- 不加 history 清理 / TTL（`route_history` 表預期增長緩慢 — 每個 unique prompt prefix 產生一筆；可接受到 ~100K 行，超過後需加 TTL）
 - 不加 routing dashboard / 統計 API
