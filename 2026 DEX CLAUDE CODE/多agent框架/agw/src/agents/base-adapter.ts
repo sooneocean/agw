@@ -6,8 +6,6 @@ import type { TaskDescriptor, TaskResult, AgentDescriptor, UnifiedAgent } from '
 const execAsync = promisify(exec);
 
 export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
-  private runningProcesses = new Map<string, import('node:child_process').ChildProcess>();
-
   constructor(
     protected timeout: number,
     protected maxBufferSize: number,
@@ -17,10 +15,10 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
   }
 
   abstract describe(): AgentDescriptor;
-  protected abstract buildArgs(task: TaskDescriptor): string[];
+  abstract buildArgs(task: TaskDescriptor): string[];
 
   /** Whether this adapter sends the prompt via stdin instead of argv. Override to return true. */
-  protected useStdin(): boolean {
+  useStdin(): boolean {
     return false;
   }
 
@@ -35,20 +33,22 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
       let stderr = '';
       let stdoutTruncated = false;
       let stderrTruncated = false;
-      let killed = false;
       let stdoutTruncationWarned = false;
       let stderrTruncationWarned = false;
+      let killed = false;
 
       const command = this.commandOverride ?? descriptor.command;
       const proc = spawn(command, args, {
         cwd: task.workingDirectory,
         stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-        timeout: task.timeoutMs ?? this.timeout,
+        timeout: this.timeout,
       });
-      this.runningProcesses.set(task.taskId, proc);
 
       // Send prompt via stdin if supported (avoids leaking prompt in ps/argv)
       if (useStdin && proc.stdin) {
+        proc.stdin.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code !== 'EPIPE') throw err;
+        });
         proc.stdin.write(task.prompt);
         proc.stdin.end();
       }
@@ -98,7 +98,6 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
       });
 
       proc.on('error', (err) => {
-        this.runningProcesses.delete(task.taskId);
         resolve({
           exitCode: 1,
           stdout,
@@ -110,7 +109,6 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
       });
 
       proc.on('close', (code, signal) => {
-        this.runningProcesses.delete(task.taskId);
         if (signal === 'SIGTERM') killed = true;
         resolve({
           exitCode: code ?? (killed ? 137 : 1),
@@ -122,17 +120,6 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
         });
       });
     });
-  }
-
-  cancel(taskId: string): boolean {
-    const child = this.runningProcesses.get(taskId);
-    if (!child) return false;
-    child.kill('SIGTERM');
-    setTimeout(() => {
-      if (!child.killed) child.kill('SIGKILL');
-    }, 3000);
-    this.runningProcesses.delete(taskId);
-    return true;
   }
 
   async healthCheck(): Promise<boolean> {
