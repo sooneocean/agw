@@ -9,7 +9,7 @@ vi.mock('node:child_process', () => ({
   exec: vi.fn(),
 }));
 
-import { ClaudeAdapter } from '../../src/agents/claude-adapter.js';
+import { GeminiAdapter } from '../../src/agents/gemini-adapter.js';
 
 function createMockProcess(exitCode: number, stdout: string, stderr = ''): ChildProcess {
   const proc = new EventEmitter() as ChildProcess;
@@ -38,76 +38,106 @@ const makeTask = (prompt = 'test prompt'): TaskDescriptor => ({
   createdAt: new Date().toISOString(),
 });
 
-describe('ClaudeAdapter', () => {
-  it('buildArgs includes --print, --output-format json, and stdin marker', () => {
-    const adapter = new ClaudeAdapter(5000, 1024);
-    const task = {
-      taskId: 't1', prompt: 'hello', workingDirectory: '/tmp',
-      status: 'running' as const, priority: 3, createdAt: new Date().toISOString(),
-    };
-    const args = adapter.buildArgs(task);
-    expect(args).toContain('--print');
-    expect(args).toContain('--output-format');
-    expect(args).toContain('json');
-    expect(args).toContain('-'); // stdin marker, prompt NOT in argv
-    expect(args).not.toContain('hello'); // prompt should NOT be in args
+describe('GeminiAdapter', () => {
+  const makeLocalTask = () => ({
+    taskId: 't1',
+    prompt: 'hello',
+    workingDirectory: '/tmp',
+    status: 'running' as const,
+    priority: 3,
+    createdAt: new Date().toISOString(),
   });
 
-  it('uses stdin for prompt delivery', () => {
-    const adapter = new ClaudeAdapter(5000, 1024);
+  it('buildArgs returns extra args followed by stdin marker', () => {
+    const adapter = new GeminiAdapter(5000, 1024);
+    const args = adapter.buildArgs(makeLocalTask());
+    expect(args).toEqual(['-']);
+  });
+
+  it('buildArgs includes extra args when provided', () => {
+    const adapter = new GeminiAdapter(5000, 1024, ['--json']);
+    const args = adapter.buildArgs(makeLocalTask());
+    expect(args).toEqual(['--json', '-']);
+  });
+
+  it('buildArgs does not include the prompt in args', () => {
+    const adapter = new GeminiAdapter(5000, 1024);
+    const args = adapter.buildArgs(makeLocalTask());
+    expect(args).not.toContain('hello');
+  });
+
+  it('useStdin returns true', () => {
+    const adapter = new GeminiAdapter(5000, 1024);
     expect(adapter.useStdin()).toBe(true);
   });
 
-  it('appends extra args without duplicating required flags', () => {
-    const adapter = new ClaudeAdapter(5000, 1024, ['--verbose']);
-    const task = {
-      taskId: 't1', prompt: 'test', workingDirectory: '/tmp',
-      status: 'running' as const, priority: 3, createdAt: new Date().toISOString(),
-    };
-    const args = adapter.buildArgs(task);
-    const printCount = args.filter((a: string) => a === '--print').length;
-    expect(printCount).toBe(1);
-    expect(args).toContain('--verbose');
+  it('describe returns correct agent descriptor', () => {
+    const adapter = new GeminiAdapter(5000, 1024, ['--verbose']);
+    const desc = adapter.describe();
+    expect(desc).toEqual({
+      id: 'gemini',
+      name: 'Gemini CLI',
+      command: 'gemini',
+      args: ['--verbose'],
+      enabled: true,
+      available: true,
+      healthCheckCommand: 'gemini --version',
+    });
+  });
+
+  it('describe returns empty args when no extra args', () => {
+    const adapter = new GeminiAdapter(5000, 1024);
+    const desc = adapter.describe();
+    expect(desc.args).toEqual([]);
+  });
+
+  it('describe args are a copy, not a reference to internal array', () => {
+    const extra = ['--flag'];
+    const adapter = new GeminiAdapter(5000, 1024, extra);
+    const desc = adapter.describe();
+    desc.args.push('--injected');
+    // Original should be unaffected
+    expect(adapter.describe().args).toEqual(['--flag']);
   });
 });
 
-describe('ClaudeAdapter execute()', () => {
+describe('GeminiAdapter execute()', () => {
   beforeEach(() => {
     mockSpawn.mockReset();
   });
 
   it('returns exitCode 0 and captured stdout on success', async () => {
-    const proc = createMockProcess(0, 'hello world');
+    const proc = createMockProcess(0, 'gemini response');
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 1_000_000, [], 'mock-claude');
+    const adapter = new GeminiAdapter(5000, 1_000_000, [], 'mock-gemini');
     const result = await adapter.execute(makeTask());
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe('hello world');
+    expect(result.stdout).toBe('gemini response');
     expect(result.stderr).toBe('');
     expect(result.stdoutTruncated).toBe(false);
     expect(result.stderrTruncated).toBe(false);
   });
 
   it('propagates non-zero exit code and captures stderr', async () => {
-    const proc = createMockProcess(2, '', 'something went wrong');
+    const proc = createMockProcess(3, '', 'api error');
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 1_000_000, [], 'mock-claude');
+    const adapter = new GeminiAdapter(5000, 1_000_000, [], 'mock-gemini');
     const result = await adapter.execute(makeTask());
 
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toBe('something went wrong');
+    expect(result.exitCode).toBe(3);
+    expect(result.stderr).toBe('api error');
     expect(result.stdout).toBe('');
   });
 
   it('truncates stdout when output exceeds maxBufferSize', async () => {
-    const longOutput = 'a'.repeat(50);
+    const longOutput = 'g'.repeat(50);
     const proc = createMockProcess(0, longOutput);
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 10, [], 'mock-claude');
+    const adapter = new GeminiAdapter(5000, 10, [], 'mock-gemini');
     const result = await adapter.execute(makeTask());
 
     expect(result.stdoutTruncated).toBe(true);
@@ -118,7 +148,7 @@ describe('ClaudeAdapter execute()', () => {
     const proc = createMockProcess(0, '');
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 1_000_000, [], 'mock-claude');
+    const adapter = new GeminiAdapter(5000, 1_000_000, [], 'mock-gemini');
     const result = await adapter.execute(makeTask());
 
     expect(result.exitCode).toBe(0);
@@ -130,18 +160,18 @@ describe('ClaudeAdapter execute()', () => {
     const proc = createMockProcess(0, 'ok');
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 1_000_000, [], 'mock-claude');
-    await adapter.execute(makeTask('my prompt'));
+    const adapter = new GeminiAdapter(5000, 1_000_000, [], 'mock-gemini');
+    await adapter.execute(makeTask('gemini prompt'));
 
-    expect(proc.stdin!.write).toHaveBeenCalledWith('my prompt');
+    expect(proc.stdin!.write).toHaveBeenCalledWith('gemini prompt');
     expect(proc.stdin!.end).toHaveBeenCalled();
   });
 
   it('records a non-negative durationMs', async () => {
-    const proc = createMockProcess(0, 'done');
+    const proc = createMockProcess(0, 'output');
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 1_000_000, [], 'mock-claude');
+    const adapter = new GeminiAdapter(5000, 1_000_000, [], 'mock-gemini');
     const result = await adapter.execute(makeTask());
 
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
@@ -151,15 +181,15 @@ describe('ClaudeAdapter execute()', () => {
     const proc = createMockProcess(0, '');
     mockSpawn.mockReturnValue(proc);
 
-    const adapter = new ClaudeAdapter(5000, 1_000_000, [], 'mock-claude');
+    const adapter = new GeminiAdapter(5000, 1_000_000, [], 'mock-gemini');
     const task = makeTask();
-    task.workingDirectory = '/specific/dir';
+    task.workingDirectory = '/gemini/workspace';
     await adapter.execute(task);
 
     expect(mockSpawn).toHaveBeenCalledWith(
-      'mock-claude',
+      'mock-gemini',
       expect.any(Array),
-      expect.objectContaining({ cwd: '/specific/dir' }),
+      expect.objectContaining({ cwd: '/gemini/workspace' }),
     );
   });
 });
