@@ -31,6 +31,9 @@ agw costs
 # Live dashboard
 agw dashboard
 
+# Run task after another completes
+agw run "build project" --after <testTaskId>
+
 # Open Web UI
 open http://127.0.0.1:4927/ui
 ```
@@ -64,6 +67,10 @@ open http://127.0.0.1:4927/ui
 | **Structured Logging** | Pino JSON logs with configurable level |
 | **Rate Limiting** | Token bucket per IP, configurable |
 | **Multi-Tenant** | API key isolation with per-tenant quotas |
+| **Task Dependencies** | Run tasks after dependencies complete |
+| **Task Notes** | Annotate tasks with contextual notes |
+| **Task Pinning** | Pin important tasks to prevent auto-purge |
+| **OpenAPI Docs** | Auto-generated Swagger UI at /docs |
 
 ## Configuration
 
@@ -113,6 +120,13 @@ Environment variables (override config file):
 | POST | `/tasks/:id/replay` | Replay a completed task |
 | PATCH | `/tasks/:id` | Update task tags/priority |
 | DELETE | `/tasks/:id` | Delete a completed/failed task |
+| POST | `/tasks/:id/notes` | Add note to task |
+| GET | `/tasks/:id/notes` | List task notes |
+| DELETE | `/notes/:noteId` | Delete a note |
+| POST | `/tasks/:id/pin` | Pin task |
+| POST | `/tasks/:id/unpin` | Unpin task |
+| GET | `/tasks/queue` | View execution queue |
+| GET | `/tasks/export` | Export tasks (JSON/CSV) |
 
 ### Combos
 
@@ -187,12 +201,19 @@ Environment variables (override config file):
 | GET | `/metrics` | Detailed metrics |
 | GET | `/events` | SSE event stream |
 | GET | `/tasks/stats` | Task statistics |
+| GET | `/audit` | Audit log entries |
+| GET | `/audit/count` | Audit entry count |
+| GET | `/costs/breakdown` | Cost breakdown by agent/day |
+| POST | `/webhooks/test` | Send test webhook event |
+| POST | `/combos/:id/cancel` | Cancel a running combo |
+| GET | `/agents/:id/config` | Agent configuration |
+| GET | `/docs` | Swagger UI (OpenAPI) |
 | GET | `/ui` | Web dashboard |
 
 ## CLI Commands
 
 ```
-agw run <prompt>         Submit a task (--agent, --priority, --timeout, --tag, --background, --cwd, --raw)
+agw run <prompt>         Submit a task (--agent, --priority, --timeout, --tag, --background, --cwd, --raw, --after <taskId>)
 agw status <taskId>      Check task status
 agw history              List recent tasks (--limit N)
 agw search [query]       Search tasks (--status, --agent, --tag, --since)
@@ -214,13 +235,22 @@ agw watch <taskId>       Watch a task in real-time
 agw combo dsl <expr> <input>  Run combo from DSL syntax
 agw agents detect        Detect installed CLI tools
 agw agents check         Trigger health checks
+agw delete <taskId>      Delete a completed/failed task
+agw pin <taskId>         Pin task to prevent auto-purge
+agw unpin <taskId>       Unpin task
+agw note <taskId> <msg>  Add a note to a task
+agw notes <taskId>       List task notes
+agw template list        List available templates
+agw template execute <id> Execute a template (--param key=value)
+agw combo watch <id>     Watch combo progress live
+agw version              Show version + check for updates
 agw daemon start|stop|status
 ```
 
 ## Development
 
 ```bash
-npm test          # Run 320+ tests
+npm test          # Run 350+ tests
 npm run build     # TypeScript compile
 npm run dev       # Start dev server
 ```
