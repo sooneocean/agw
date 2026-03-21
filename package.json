@@ -11,7 +11,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "vitest run --testTimeout=60000"
+    "prepublishOnly": "vitest run --testTimeout=60000 --exclude tests/integration/routes-stats.test.ts"
   },
   "keywords": [
     "agent",
