@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
 import { handleCliError } from '../error-handler.js';
+import { parseDsl } from '../../dsl/parser.js';
 import type { ComboDescriptor, ComboPreset } from '../../types.js';
 
 export function registerComboCommand(program: Command): void {
@@ -97,6 +98,31 @@ export function registerComboCommand(program: Command): void {
           console.log('\n─── Final Output ───');
           console.log(c.finalOutput);
         }
+      } catch (err) {
+        handleCliError(err);
+      }
+    });
+
+  // Run combo from DSL expression
+  combo.command('dsl <expression> <input...>')
+    .description('Run combo from DSL syntax (e.g. \'claude: "analyze" | codex: "implement"\')')
+    .option('--cwd <path>', 'Working directory')
+    .action(async (expression: string, inputParts: string[], options: { cwd?: string }) => {
+      const client = new HttpClient();
+      try {
+        const program = parseDsl(expression);
+        const combo = await client.post<ComboDescriptor>('/combos', {
+          name: `DSL: ${expression.slice(0, 50)}`,
+          pattern: program.pattern,
+          steps: program.steps,
+          input: inputParts.join(' '),
+          workingDirectory: options.cwd,
+          maxIterations: program.maxIterations,
+        });
+        console.log(`Combo: ${combo.comboId}  ${combo.name}`);
+        console.log(`Pattern: ${combo.pattern}`);
+        console.log(`Steps: ${combo.steps.length}`);
+        console.log(`\nCheck progress: agw combo status ${combo.comboId}`);
       } catch (err) {
         handleCliError(err);
       }

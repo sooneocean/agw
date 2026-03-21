@@ -13,7 +13,8 @@ export function registerRunCommand(program: Command): void {
     .option('--priority <n>', 'Task priority 1-5 (default 3)', '3')
     .option('--timeout <ms>', 'Timeout in milliseconds')
     .option('--tag <tags>', 'Comma-separated tags')
-    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string }) => {
+    .option('--raw', 'Output only stdout (pipe-friendly, no decorations)')
+    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string; raw?: boolean }) => {
       const client = new HttpClient();
       let prompt = promptParts.join(' ');
 
@@ -35,7 +36,11 @@ export function registerRunCommand(program: Command): void {
           tags: options.tag ? options.tag.split(',').map(t => t.trim()) : undefined,
         });
 
-        if (options.background) {
+        if (options.raw) {
+          // Pipe-friendly: stdout only, no decorations
+          if (task.result?.stdout) process.stdout.write(task.result.stdout);
+          if (task.result?.exitCode !== 0) process.exitCode = 1;
+        } else if (options.background) {
           console.log(`✓ Task submitted  taskId: ${task.taskId}`);
           console.log(`  Check status: agw status ${task.taskId}`);
         } else {
