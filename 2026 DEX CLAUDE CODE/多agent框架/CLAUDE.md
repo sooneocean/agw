@@ -150,3 +150,23 @@
 
 
 <!-- No stack sections installed -->
+
+
+# Agent Teams 共存規則
+
+> AGW（L1）與 Agent Teams（L2）平行共存，使用者依任務性質自行選路。
+
+## 分工原則
+
+- **AGW**：結構化多步驟工作流，有明確資料流（Pipeline / Map-Reduce / Review-Loop / Debate）
+- **Agent Teams**：多個獨立 session 並行，各自擁有 git worktree 隔離
+
+## 不互相干擾
+
+- Agent Teams 不影響 AGW 的 combo executor、task executor、agent adapters
+- AGW 的 SOP（S0-S7）不適用於 Agent Teams session
+- 兩者可同時啟用，互不衝突
+
+## 選路表
+
+見 root `/CLAUDE.md` 的選路指南。
