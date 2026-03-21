@@ -68,4 +68,32 @@ export class AgentManager {
   getAvailableAgents(): AgentDescriptor[] {
     return this.agentRepo.listAvailable();
   }
+
+  /** Detect which agent CLIs are installed on the system */
+  static async detectInstalledAgents(): Promise<{ id: string; installed: boolean; version?: string }[]> {
+    const { exec } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execAsync = promisify(exec);
+
+    const agents = [
+      { id: 'claude', command: 'claude --version' },
+      { id: 'codex', command: 'codex --version' },
+      { id: 'gemini', command: 'gemini --version' },
+    ];
+
+    const results = await Promise.allSettled(
+      agents.map(async ({ id, command }) => {
+        try {
+          const { stdout } = await execAsync(command, { timeout: 3000 });
+          return { id, installed: true, version: stdout.trim().split('\n')[0] };
+        } catch {
+          return { id, installed: false };
+        }
+      })
+    );
+
+    return results.map((r, i) =>
+      r.status === 'fulfilled' ? r.value : { id: agents[i].id, installed: false }
+    );
+  }
 }

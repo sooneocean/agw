@@ -149,6 +149,21 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     }
   });
 
+  // Wire combo lifecycle events → webhooks
+  comboExecutor.on('combo:done', (comboId: string) => {
+    const combo = comboRepo.getById(comboId);
+    if (combo) {
+      const event = combo.status === 'completed' ? 'combo.completed' : 'combo.failed';
+      webhookManager.emit(event, {
+        comboId,
+        name: combo.name,
+        pattern: combo.pattern,
+        status: combo.status,
+        taskCount: combo.taskIds.length,
+      }).catch(() => {});
+    }
+  });
+
   // Periodic data cleanup
   const purgeTimer = setInterval(() => {
     auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);

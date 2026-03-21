@@ -235,6 +235,10 @@ export class TaskExecutor extends EventEmitter {
     return true;
   }
 
+  getTaskStats() {
+    return this.taskRepo.getStats();
+  }
+
   deleteTask(taskId: string): boolean {
     return this.taskRepo.delete(taskId);
   }

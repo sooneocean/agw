@@ -205,4 +205,64 @@ export class TaskRepo {
     for (const r of rows) result[r.status] = r.cnt;
     return result;
   }
+
+  getStats(): {
+    totalTasks: number;
+    byStatus: Record<string, number>;
+    byAgent: Record<string, number>;
+    avgDurationMs: number;
+    totalCostEstimate: number;
+    topTags: { tag: string; count: number }[];
+    recentActivity: { date: string; count: number }[];
+  } {
+    const byStatus = this.countByStatus();
+    const totalTasks = Object.values(byStatus).reduce((a, b) => a + b, 0);
+
+    const agentRows = this.db.prepare(
+      'SELECT assigned_agent, COUNT(*) as cnt FROM tasks WHERE assigned_agent IS NOT NULL GROUP BY assigned_agent'
+    ).all() as { assigned_agent: string; cnt: number }[];
+    const byAgent: Record<string, number> = {};
+    for (const r of agentRows) byAgent[r.assigned_agent] = r.cnt;
+
+    const avgRow = this.db.prepare(
+      'SELECT AVG(duration_ms) as avg FROM tasks WHERE duration_ms IS NOT NULL'
+    ).get() as { avg: number | null };
+
+    const costRow = this.db.prepare(
+      'SELECT COALESCE(SUM(cost_estimate), 0) as total FROM tasks WHERE cost_estimate IS NOT NULL'
+    ).get() as { total: number };
+
+    // Recent 7 days activity
+    const activityRows = this.db.prepare(
+      `SELECT DATE(created_at) as date, COUNT(*) as cnt FROM tasks
+       WHERE created_at >= DATE('now', '-7 days')
+       GROUP BY DATE(created_at) ORDER BY date DESC`
+    ).all() as { date: string; cnt: number }[];
+
+    // Top tags (parse JSON arrays, count occurrences)
+    const allTags = this.db.prepare(
+      "SELECT tags FROM tasks WHERE tags != '[]'"
+    ).all() as { tags: string }[];
+    const tagCounts = new Map<string, number>();
+    for (const row of allTags) {
+      try {
+        const tags = JSON.parse(row.tags) as string[];
+        for (const t of tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+      } catch { /* skip malformed */ }
+    }
+    const topTags = [...tagCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([tag, count]) => ({ tag, count }));
+
+    return {
+      totalTasks,
+      byStatus,
+      byAgent,
+      avgDurationMs: Math.round(avgRow.avg ?? 0),
+      totalCostEstimate: Math.round((costRow.total ?? 0) * 1000) / 1000,
+      topTags,
+      recentActivity: activityRows.map(r => ({ date: r.date, count: r.cnt })),
+    };
+  }
 }

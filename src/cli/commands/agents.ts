@@ -43,6 +43,24 @@ export function registerAgentsCommand(program: Command): void {
         handleCliError(err);
       }
     });
+  cmd
+    .command('detect')
+    .description('Detect which agent CLIs are installed on this system')
+    .action(async () => {
+      const client = new HttpClient();
+      try {
+        const agents = await client.get<{ id: string; installed: boolean; version?: string }[]>('/agents/detect');
+        console.log('Agent Detection:');
+        console.log('─'.repeat(40));
+        for (const a of agents) {
+          const icon = a.installed ? '✓' : '✗';
+          const ver = a.version ? ` (${a.version})` : '';
+          console.log(`  ${icon} ${a.id.padEnd(10)} ${a.installed ? 'installed' : 'not found'}${ver}`);
+        }
+      } catch (err) {
+        handleCliError(err);
+      }
+    });
 }
 
 function timeSince(date: Date): string {

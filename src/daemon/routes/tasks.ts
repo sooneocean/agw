@@ -227,6 +227,11 @@ export function registerTaskRoutes(
     return executor.getTask(request.params.id);
   });
 
+  // Task statistics
+  app.get('/tasks/stats', async () => {
+    return executor.getTaskStats();
+  });
+
   // Search tasks with multi-field query
   app.get<{ Querystring: { q?: string; status?: string; agent?: string; tag?: string; since?: string; until?: string; limit?: string; offset?: string } }>(
     '/tasks/search',

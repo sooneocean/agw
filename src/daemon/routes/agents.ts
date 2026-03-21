@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { AgentManager } from '../services/agent-manager.js';
+import { AgentManager } from '../services/agent-manager.js';
 import type { AgentLearning } from '../services/agent-learning.js';
 import type { TaskRepo } from '../../store/task-repo.js';
 import type { CostRepo } from '../../store/cost-repo.js';
@@ -13,6 +13,11 @@ export function registerAgentRoutes(
 ): void {
   app.get('/agents', async () => {
     return agentManager.listAgents();
+  });
+
+  // Detect installed agent CLIs (must be before :id routes)
+  app.get('/agents/detect', async () => {
+    return AgentManager.detectInstalledAgents();
   });
 
   app.post<{ Params: { id: string } }>('/agents/:id/health', async (request, reply) => {
