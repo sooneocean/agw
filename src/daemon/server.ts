@@ -46,6 +46,9 @@ interface ServerOptions {
   configPath?: string;
 }
 
+const AUDIT_RETENTION_DAYS = 30;
+const AUDIT_PURGE_INTERVAL_MS = 6 * 3_600_000; // every 6 hours
+
 export async function buildServer(options: ServerOptions = {}): Promise<FastifyInstance> {
   const agwDir = path.join(os.homedir(), '.agw');
   const configPath = options.configPath ?? path.join(agwDir, 'config.json');
@@ -74,8 +77,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const cbRegistry = new CircuitBreakerRegistry();
   const templateEngine = new TemplateEngine();
   templateEngine.seedDefaults();
-  const webhookManager = new WebhookManager();
-  const scheduler = new Scheduler();
+  const webhookManager = new WebhookManager(db);
+  const scheduler = new Scheduler(db);
   const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager, config.allowedWorkspaces);
   const capDiscovery = new CapabilityDiscovery();
   const snapshotManager = new SnapshotManager(dbPath);
@@ -107,13 +110,29 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
 
   agentManager.runHealthChecks().catch(() => {});
 
+  // Periodic audit log cleanup
+  const auditPurgeTimer = setInterval(() => {
+    auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);
+  }, AUDIT_PURGE_INTERVAL_MS);
+  auditPurgeTimer.unref();
+
+  // Initial purge on startup
+  auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);
+
   app.addHook('onClose', async () => {
+    clearInterval(auditPurgeTimer);
+
+    // Mark running tasks as failed
     const runningTasks = taskRepo.listByStatus('running');
     for (const t of runningTasks) {
       taskRepo.updateStatus(t.taskId, 'failed');
       auditRepo.log(t.taskId, 'task.failed', { reason: 'daemon shutdown' });
     }
+
+    // Stop scheduler timers
     scheduler.stopAll();
+
+    // Close DB last
     db.close();
   });
 

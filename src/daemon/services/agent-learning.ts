@@ -1,7 +1,9 @@
 /**
  * Agent Learning — tracks which agent performs best for different task categories.
- * Over time, routing decisions improve based on historical success rates.
+ * Scores are persisted to SQLite and restored on daemon restart.
  */
+
+import type Database from 'better-sqlite3';
 
 export interface AgentScore {
   agentId: string;
@@ -10,11 +12,60 @@ export interface AgentScore {
   failCount: number;
   avgDurationMs: number;
   totalCost: number;
-  score: number;  // calculated: success_rate * (1 / normalized_duration)
+  score: number;
+}
+
+interface ScoreRow {
+  agent_id: string;
+  category: string;
+  success_count: number;
+  fail_count: number;
+  avg_duration_ms: number;
+  total_cost: number;
+  score: number;
+}
+
+function rowToScore(row: ScoreRow): AgentScore {
+  return {
+    agentId: row.agent_id,
+    category: row.category,
+    successCount: row.success_count,
+    failCount: row.fail_count,
+    avgDurationMs: row.avg_duration_ms,
+    totalCost: row.total_cost,
+    score: row.score,
+  };
 }
 
 export class AgentLearning {
-  private scores = new Map<string, AgentScore>(); // key: `agentId:category`
+  private scores = new Map<string, AgentScore>();
+  private db?: Database.Database;
+
+  constructor(db?: Database.Database) {
+    this.db = db;
+    if (db) this.loadFromDb();
+  }
+
+  private loadFromDb(): void {
+    if (!this.db) return;
+    const rows = this.db.prepare('SELECT * FROM agent_scores').all() as ScoreRow[];
+    for (const row of rows) {
+      const score = rowToScore(row);
+      this.scores.set(`${score.agentId}:${score.category}`, score);
+    }
+  }
+
+  private persistScore(score: AgentScore): void {
+    if (!this.db) return;
+    this.db.prepare(
+      `INSERT OR REPLACE INTO agent_scores
+       (agent_id, category, success_count, fail_count, avg_duration_ms, total_cost, score)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      score.agentId, score.category, score.successCount, score.failCount,
+      score.avgDurationMs, score.totalCost, score.score,
+    );
+  }
 
   record(agentId: string, category: string, success: boolean, durationMs: number, cost: number): void {
     const key = `${agentId}:${category}`;
@@ -31,6 +82,7 @@ export class AgentLearning {
     score.avgDurationMs = ((score.avgDurationMs * (total - 1)) + durationMs) / total;
     score.totalCost += cost;
     score.score = this.calculateScore(score);
+    this.persistScore(score);
   }
 
   private calculateScore(s: AgentScore): number {
@@ -41,7 +93,6 @@ export class AgentLearning {
     return Math.round(successRate * speedFactor * 1000) / 1000;
   }
 
-  /** Get the best agent for a category based on historical performance */
   getBestAgent(category: string): string | undefined {
     const candidates = Array.from(this.scores.values())
       .filter(s => s.category === category && (s.successCount + s.failCount) >= 3);
@@ -51,17 +102,14 @@ export class AgentLearning {
     return candidates[0].agentId;
   }
 
-  /** Get all scores for an agent */
   getAgentScores(agentId: string): AgentScore[] {
     return Array.from(this.scores.values()).filter(s => s.agentId === agentId);
   }
 
-  /** Get all scores */
   getAllScores(): AgentScore[] {
     return Array.from(this.scores.values());
   }
 
-  /** Categorize a prompt into a rough category */
   static categorize(prompt: string): string {
     const lower = prompt.toLowerCase();
     if (/refactor|restructure|reorganize/.test(lower)) return 'refactoring';

@@ -22,4 +22,17 @@ export class AuditRepo {
       createdAt: r.created_at,
     }));
   }
+
+  /** Delete audit entries older than the given number of days. Returns count of deleted rows. */
+  purgeOlderThan(days: number): number {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const result = this.db.prepare('DELETE FROM audit_log WHERE created_at < ?').run(cutoff);
+    return result.changes;
+  }
+
+  /** Get total count of audit entries */
+  count(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM audit_log').get() as { cnt: number };
+    return row.cnt;
+  }
 }

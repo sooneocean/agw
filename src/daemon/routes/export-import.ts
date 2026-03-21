@@ -20,7 +20,7 @@ export function registerExportImportRoutes(
       webhooks: webhookManager.getWebhooks(),
       memory: memoryRepo.list(1000),
       scheduledJobs: scheduler.listJobs(),
-      version: '1.6.0',
+      version: '1.7.2',
     });
   });
 
