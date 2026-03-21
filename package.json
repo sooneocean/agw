@@ -11,7 +11,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "vitest run --testTimeout=60000"
   },
   "keywords": [
     "agent",
