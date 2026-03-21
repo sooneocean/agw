@@ -235,6 +235,14 @@ export class TaskExecutor extends EventEmitter {
     return true;
   }
 
+  getQueueInfo(): { length: number; tasks: { taskId: string; agentId: string; priority: number }[] } {
+    const queued = this.taskQueue.getQueuedTasks();
+    return {
+      length: queued.length,
+      tasks: queued.map(q => ({ taskId: q.taskId, agentId: q.agentId, priority: q.priority })),
+    };
+  }
+
   getTaskStats() {
     return this.taskRepo.getStats();
   }

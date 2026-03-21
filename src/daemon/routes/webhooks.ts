@@ -90,6 +90,15 @@ export function registerWebhookRoutes(app: FastifyInstance, webhookManager: Webh
     return reply.status(201).send({ registered: true, url: body.url });
   });
 
+  // Send a test event to all registered webhooks
+  app.post('/webhooks/test', async () => {
+    await webhookManager.emit('webhook.test', {
+      message: 'This is a test event from AGW',
+      timestamp: new Date().toISOString(),
+    });
+    return { sent: true, webhookCount: webhookManager.getWebhooks().length };
+  });
+
   app.delete<{ Body: { url: string } }>('/webhooks', {
     schema: {
       body: {

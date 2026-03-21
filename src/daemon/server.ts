@@ -123,6 +123,12 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
 
   agentManager.runHealthChecks().catch(() => {});
 
+  // Periodic agent health checks (every 5 minutes)
+  const healthCheckTimer = setInterval(() => {
+    agentManager.runHealthChecks().catch(() => {});
+  }, 5 * 60_000);
+  healthCheckTimer.unref();
+
   // Wire task lifecycle events → webhooks, metrics, agent learning
   executor.on('task:done', (taskId: string, result: { exitCode: number; durationMs: number; costEstimate?: number }) => {
     // Record duration for metrics
@@ -186,6 +192,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
 
   app.addHook('onClose', async () => {
     clearInterval(purgeTimer);
+    clearInterval(healthCheckTimer);
 
     // Mark running tasks as failed
     const runningTasks = taskRepo.listByStatus('running');

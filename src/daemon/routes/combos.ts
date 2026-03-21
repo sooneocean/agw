@@ -96,6 +96,17 @@ export function registerComboRoutes(
     return comboExecutor.getPresets();
   });
 
+  // Cancel a running combo
+  app.post<{ Params: { id: string } }>('/combos/:id/cancel', async (request, reply) => {
+    const combo = comboExecutor.getCombo(request.params.id);
+    if (!combo) return reply.status(404).send({ error: 'Combo not found' });
+    if (combo.status !== 'running' && combo.status !== 'pending') {
+      return reply.status(400).send({ error: 'Combo is not running' });
+    }
+    comboExecutor.cancelCombo(request.params.id);
+    return { cancelled: true, comboId: request.params.id };
+  });
+
   // Get combo by ID
   app.get<{ Params: { id: string } }>('/combos/:id', async (request, reply) => {
     const combo = comboExecutor.getCombo(request.params.id);

@@ -75,6 +75,8 @@ export const COMBO_PRESETS: ComboPreset[] = [
 ];
 
 export class ComboExecutor extends EventEmitter {
+  private cancelledCombos = new Set<string>();
+
   constructor(
     private comboRepo: ComboRepo,
     private auditRepo: AuditRepo,
@@ -82,6 +84,17 @@ export class ComboExecutor extends EventEmitter {
     private agentManager: AgentManager,
   ) {
     super();
+  }
+
+  cancelCombo(comboId: string): void {
+    this.cancelledCombos.add(comboId);
+    this.comboRepo.updateStatus(comboId, 'failed');
+    this.auditRepo.log(null, 'combo.failed', { comboId, reason: 'cancelled by user' });
+    this.emit('combo:done', comboId);
+  }
+
+  private isCancelled(comboId: string): boolean {
+    return this.cancelledCombos.has(comboId);
   }
 
   getPresets(): ComboPreset[] {
@@ -149,6 +162,8 @@ export class ComboExecutor extends EventEmitter {
     let prev = '';
 
     for (let i = 0; i < request.steps.length; i++) {
+      if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
+
       const step = request.steps[i];
       const prompt = interpolate(step.prompt, { input: request.input, prev, stepResults });
 

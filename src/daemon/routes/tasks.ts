@@ -227,6 +227,31 @@ export function registerTaskRoutes(
     return executor.getTask(request.params.id);
   });
 
+  // Queue visibility
+  app.get('/tasks/queue', async () => {
+    return executor.getQueueInfo();
+  });
+
+  // Task export
+  app.get<{ Querystring: { format?: string; limit?: string } }>('/tasks/export', async (request, reply) => {
+    const limit = Math.min(parseInt(request.query.limit ?? '100', 10) || 100, 1000);
+    const tasks = executor.listTasks(limit, 0);
+
+    if (request.query.format === 'csv') {
+      const header = 'taskId,status,agent,priority,prompt,createdAt,durationMs,exitCode';
+      const rows = tasks.map(t => [
+        t.taskId, t.status, t.assignedAgent ?? '', t.priority,
+        `"${(t.prompt ?? '').replace(/"/g, '""').slice(0, 200)}"`,
+        t.createdAt, t.result?.durationMs ?? '', t.result?.exitCode ?? '',
+      ].join(','));
+      reply.header('Content-Type', 'text/csv');
+      reply.header('Content-Disposition', 'attachment; filename=agw-tasks.csv');
+      return [header, ...rows].join('\n');
+    }
+
+    return tasks;
+  });
+
   // Task statistics
   app.get('/tasks/stats', async () => {
     return executor.getTaskStats();
