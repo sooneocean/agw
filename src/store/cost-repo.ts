@@ -49,6 +49,17 @@ export class CostRepo {
     return result.changes;
   }
 
+  getBreakdown(days: number): { date: string; agent: string; cost: number; tokens: number; tasks: number }[] {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    return this.db.prepare(
+      `SELECT DATE(recorded_at) as date, agent_id as agent,
+       COALESCE(SUM(cost), 0) as cost, COALESCE(SUM(tokens), 0) as tokens, COUNT(*) as tasks
+       FROM cost_records WHERE recorded_at >= ?
+       GROUP BY DATE(recorded_at), agent_id
+       ORDER BY date DESC, agent_id`
+    ).all(cutoff) as { date: string; agent: string; cost: number; tokens: number; tasks: number }[];
+  }
+
   getSummary(dailyLimit?: number, monthlyLimit?: number): CostSummary {
     return {
       daily: this.getDailyCost(),

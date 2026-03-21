@@ -44,6 +44,7 @@ import { registerCapabilityRoutes } from './routes/capabilities.js';
 import { registerBatchRoutes } from './routes/batch.js';
 import { registerSnapshotRoutes } from './routes/snapshots.js';
 import { registerEventRoutes } from './routes/events.js';
+import { registerAuditRoutes } from './routes/audit.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -118,6 +119,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerBatchRoutes(app, executor, router, agentManager);
   registerSnapshotRoutes(app, snapshotManager);
   registerEventRoutes(app, executor, comboExecutor);
+  registerAuditRoutes(app, auditRepo);
 
   app.register(import('./routes/ui.js'));
 

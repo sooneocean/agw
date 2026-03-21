@@ -14,6 +14,7 @@ import { registerStatsCommand } from './commands/stats.js';
 import { registerEventsCommand } from './commands/events.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerWatchCommand } from './commands/watch.js';
+import { registerQueueCommand } from './commands/queue.js';
 import { VERSION } from '../version.js';
 
 export function createCli(): Command {
@@ -38,6 +39,7 @@ export function createCli(): Command {
   registerEventsCommand(program);
   registerConfigCommand(program);
   registerWatchCommand(program);
+  registerQueueCommand(program);
 
   return program;
 }

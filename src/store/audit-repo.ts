@@ -30,6 +30,32 @@ export class AuditRepo {
     return result.changes;
   }
 
+  list(limit: number = 50, offset: number = 0): AuditEntry[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?'
+    ).all(limit, offset) as Array<{ id: number; task_id: string; event_type: string; payload: string; created_at: string }>;
+    return rows.map(r => ({
+      id: r.id,
+      taskId: r.task_id,
+      eventType: r.event_type as AuditEventType,
+      payload: JSON.parse(r.payload),
+      createdAt: r.created_at,
+    }));
+  }
+
+  listByEventType(eventType: string, limit: number = 50): AuditEntry[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM audit_log WHERE event_type = ? ORDER BY id DESC LIMIT ?'
+    ).all(eventType, limit) as Array<{ id: number; task_id: string; event_type: string; payload: string; created_at: string }>;
+    return rows.map(r => ({
+      id: r.id,
+      taskId: r.task_id,
+      eventType: r.event_type as AuditEventType,
+      payload: JSON.parse(r.payload),
+      createdAt: r.created_at,
+    }));
+  }
+
   /** Get total count of audit entries */
   count(): number {
     const row = this.db.prepare('SELECT COUNT(*) as cnt FROM audit_log').get() as { cnt: number };
