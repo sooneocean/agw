@@ -7,23 +7,29 @@ Submit a task → AGW picks the best agent → agent executes → you get result
 ## Quick Start
 
 ```bash
-# Install dependencies
-npm install
+# Install globally
+npm i -g @sooneocean/agw
 
 # Start the daemon
-npx agw daemon start
+agw daemon start
 
 # Run a task
-npx agw run "refactor auth.ts"
+agw run "refactor auth.ts"
 
-# Run with specific agent
-npx agw run "quick rename" --agent codex --priority 5
+# Run with specific agent, priority, timeout, tags
+agw run "quick rename" --agent codex --priority 5 --timeout 30000 --tag "refactor,urgent"
+
+# Search tasks
+agw search "auth" --status completed --agent claude
+
+# Multi-agent combo (pipeline)
+agw combo preset analyze-implement-review "fix the login bug"
 
 # Check costs
-npx agw costs
+agw costs
 
-# Multi-step workflow
-npx agw workflow run '{"name":"deploy","steps":[{"prompt":"run tests"},{"prompt":"build"}]}'
+# Live dashboard
+agw dashboard
 
 # Open Web UI
 open http://127.0.0.1:4927/ui
@@ -33,16 +39,29 @@ open http://127.0.0.1:4927/ui
 
 | Feature | Description |
 |---------|-------------|
-| **Smart Routing** | LLM classifier (Haiku) + keyword fallback |
+| **Smart Routing** | LLM classifier (Haiku) + keyword fallback + agent learning |
 | **3 Agents** | Claude (complex reasoning), Codex (terminal ops), Gemini (research) |
-| **Auth** | Bearer token via `AGW_AUTH_TOKEN`, loopback-only without token |
+| **Combos** | Multi-agent collaboration: pipeline, map-reduce, review-loop, debate |
+| **Task Tags** | Label and filter tasks with custom tags |
+| **Task Timeout** | Per-task timeout with auto-cancel |
+| **Task Cancel/Retry** | Cancel running tasks, retry failed ones |
+| **Task Search** | Multi-field search: prompt, status, agent, tag, date range |
 | **Priority Queue** | 1-5 priority with per-agent concurrency limits |
-| **Cost Tracking** | Per-task cost recording, daily/monthly quotas |
+| **Cost Tracking** | Per-task cost recording, daily/monthly quotas, auto-purge |
 | **Workflows** | Sequential or parallel multi-step task chains |
+| **DAG Execution** | Dependency graph with parallel execution of independent nodes |
+| **DSL** | `claude: "analyze" \| codex: "implement"` syntax |
+| **Scheduler** | Recurring jobs (persisted to SQLite) |
+| **Webhooks** | HTTP POST notifications on task events (persisted) |
+| **Agent Learning** | Tracks per-agent performance, feeds back into routing |
+| **Templates** | Reusable parameterized task definitions |
+| **Snapshots** | Full database backup and restore |
+| **Batch** | Submit up to 50 tasks with concurrency control |
+| **Auth** | Bearer token or loopback-only |
+| **Workspace Sandbox** | `allowedWorkspaces` whitelist + realpath validation |
 | **Web UI** | Real-time dashboard at `/ui` |
 | **SSE Streaming** | Live stdout/stderr via `/tasks/:id/stream` |
-| **Workspace Sandbox** | `allowedWorkspaces` whitelist + realpath validation |
-| **Stdin Prompts** | Prompt delivery via stdin (no argv leakage) |
+| **Structured Logging** | Pino JSON logs with configurable level |
 
 ## Configuration
 
@@ -67,49 +86,134 @@ Config file: `~/.agw/config.json`
 ```
 
 Environment variables (override config file):
-- `AGW_PORT` — server port
-- `AGW_AUTH_TOKEN` — Bearer token
-- `ANTHROPIC_API_KEY` — for LLM routing
+
+| Variable | Description |
+|----------|-------------|
+| `AGW_PORT` | Server port (default: 4927) |
+| `AGW_AUTH_TOKEN` | Bearer token for API auth |
+| `ANTHROPIC_API_KEY` | API key for LLM routing |
+| `AGW_LOG_LEVEL` | Log level: debug, info, warn, error (default: info) |
+| `AGW_LOG_PRETTY` | Set to `1` for human-readable logs in dev |
 
 ## API
+
+### Tasks
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/tasks` | Create and execute a task |
 | GET | `/tasks/:id` | Get task details |
 | GET | `/tasks/:id/stream` | SSE stream (stdout/stderr/done) |
-| GET | `/tasks` | List tasks |
-| POST | `/workflows` | Create workflow (returns 202) |
+| GET | `/tasks` | List tasks (`?limit=&offset=&tag=`) |
+| GET | `/tasks/search` | Search tasks (`?q=&status=&agent=&tag=&since=&until=`) |
+| POST | `/tasks/:id/cancel` | Cancel a running/pending task |
+| POST | `/tasks/:id/retry` | Retry a failed/cancelled task |
+| POST | `/tasks/:id/replay` | Replay a completed task |
+| PATCH | `/tasks/:id` | Update task tags/priority |
+| DELETE | `/tasks/:id` | Delete a completed/failed task |
+
+### Combos
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/combos` | Create and start a combo |
+| POST | `/combos/preset/:presetId` | Run a built-in preset |
+| GET | `/combos/presets` | List available presets |
+| GET | `/combos/:id` | Get combo status and results |
+| GET | `/combos` | List combos |
+| POST | `/combos/:id/replay` | Replay a combo |
+
+### Workflows
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/workflows` | Create workflow |
 | GET | `/workflows/:id` | Get workflow status |
 | GET | `/workflows` | List workflows |
+
+### Agents
+
+| Method | Path | Description |
+|--------|------|-------------|
 | GET | `/agents` | List agents |
 | POST | `/agents/:id/health` | Trigger health check |
+| GET | `/agents/:id/stats` | Agent performance stats |
+
+### Templates
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/templates` | List templates |
+| POST | `/templates` | Register custom template |
+| POST | `/templates/execute` | Instantiate and execute |
+| DELETE | `/templates/:id` | Delete template |
+
+### Scheduler
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/scheduler/jobs` | List scheduled jobs |
+| POST | `/scheduler/jobs` | Create job |
+| DELETE | `/scheduler/jobs/:id` | Remove job |
+| POST | `/scheduler/jobs/:id/enable` | Enable job |
+| POST | `/scheduler/jobs/:id/disable` | Disable job |
+
+### Other
+
+| Method | Path | Description |
+|--------|------|-------------|
 | GET | `/costs` | Cost summary |
+| POST | `/batch` | Submit batch tasks (max 50) |
+| GET | `/webhooks` | List webhooks |
+| POST | `/webhooks` | Register webhook |
+| DELETE | `/webhooks` | Remove webhook |
+| GET | `/memory` | List memory entries |
+| PUT | `/memory/:key` | Set memory entry |
+| GET | `/export` | Export configuration |
+| POST | `/import` | Import configuration |
+| POST | `/snapshots` | Create DB snapshot |
+| GET | `/snapshots` | List snapshots |
+| POST | `/snapshots/:id/restore` | Restore snapshot |
+| DELETE | `/snapshots/:id` | Delete snapshot |
+| GET | `/capabilities` | Agent capabilities |
+| POST | `/capabilities/match` | Find best agent for task |
+| GET | `/health` | Health check |
+| GET | `/health/ready` | Readiness probe |
+| GET | `/metrics` | Detailed metrics |
 | GET | `/ui` | Web dashboard |
 
 ## CLI Commands
 
 ```
-agw run <prompt>       Submit a task (--agent, --priority, --background, --cwd)
-agw status <taskId>    Check task status
-agw history            List recent tasks (--limit N)
-agw agents             List agents / agw agents check
-agw daemon start|stop|status
-agw costs              Show cost summary
+agw run <prompt>         Submit a task (--agent, --priority, --timeout, --tag, --background, --cwd)
+agw status <taskId>      Check task status
+agw history              List recent tasks (--limit N)
+agw search [query]       Search tasks (--status, --agent, --tag, --since)
+agw cancel <taskId>      Cancel a running/pending task
+agw retry <taskId>       Retry a failed/cancelled task
+agw agents               List agents / agw agents check
+agw combo presets        List combo presets
+agw combo preset <id>    Run a preset combo
+agw combo run <json>     Run custom combo
+agw combo status <id>    Check combo status
+agw combo list           List recent combos
 agw workflow run|status|list
+agw costs                Show cost summary
+agw dashboard            Live terminal dashboard (--once)
+agw daemon start|stop|status
 ```
 
 ## Development
 
 ```bash
-npm test          # Run 76 tests
+npm test          # Run 270+ tests
 npm run build     # TypeScript compile
 npm run dev       # Start dev server
 ```
 
 ## Tech Stack
 
-TypeScript, Fastify, SQLite (better-sqlite3), Commander.js, Node.js 22+
+TypeScript, Fastify, SQLite (better-sqlite3), Commander.js, Pino, Node.js 22+
 
 ## License
 

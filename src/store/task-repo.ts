@@ -184,6 +184,19 @@ export class TaskRepo {
     return rows.map(rowToTask);
   }
 
+  delete(taskId: string): boolean {
+    const result = this.db.prepare('DELETE FROM tasks WHERE task_id = ?').run(taskId);
+    return result.changes > 0;
+  }
+
+  updateTags(taskId: string, tags: string[]): void {
+    this.db.prepare('UPDATE tasks SET tags = ? WHERE task_id = ?').run(JSON.stringify(tags), taskId);
+  }
+
+  updatePriority(taskId: string, priority: number): void {
+    this.db.prepare('UPDATE tasks SET priority = ? WHERE task_id = ?').run(priority, taskId);
+  }
+
   countByStatus(): Record<string, number> {
     const rows = this.db.prepare(
       'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'

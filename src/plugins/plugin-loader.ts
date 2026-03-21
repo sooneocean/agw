@@ -75,8 +75,8 @@ export function loadPlugins(): Plugin[] {
           if (validatePlugin(p)) plugins.push(p);
         }
       }
-    } catch {
-      // Skip malformed plugin files
+    } catch (err) {
+      console.warn(`[AGW] Skipping malformed plugin file: ${file} — ${(err as Error).message}`);
     }
   }
 

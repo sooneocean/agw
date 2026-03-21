@@ -10,7 +10,19 @@ export function registerCapabilityRoutes(app: FastifyInstance, discovery: Capabi
     return cap;
   });
 
-  app.post<{ Body: { prompt: string; availableAgents?: string[] } }>('/capabilities/match', async (request) => {
+  app.post<{ Body: { prompt: string; availableAgents?: string[] } }>('/capabilities/match', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: { type: 'string', minLength: 1, maxLength: 100000 },
+          availableAgents: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request) => {
     const agents = request.body.availableAgents ?? ['claude', 'codex', 'gemini'];
     return discovery.findBestMatch(request.body.prompt, agents) ?? { agentId: agents[0], score: 0, reason: 'Fallback' };
   });

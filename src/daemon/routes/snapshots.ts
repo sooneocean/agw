@@ -4,7 +4,17 @@ import type { SnapshotManager } from '../services/snapshot.js';
 export function registerSnapshotRoutes(app: FastifyInstance, snapshotManager: SnapshotManager): void {
   app.get('/snapshots', async () => snapshotManager.list());
 
-  app.post<{ Body: { label?: string } }>('/snapshots', async (request, reply) => {
+  app.post<{ Body: { label?: string } }>('/snapshots', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', maxLength: 100, pattern: '^[a-zA-Z0-9_-]+$' },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
     const info = snapshotManager.create(request.body?.label);
     return reply.status(201).send(info);
   });

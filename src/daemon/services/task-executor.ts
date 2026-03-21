@@ -235,6 +235,15 @@ export class TaskExecutor extends EventEmitter {
     return true;
   }
 
+  deleteTask(taskId: string): boolean {
+    return this.taskRepo.delete(taskId);
+  }
+
+  updateTaskMeta(taskId: string, updates: { tags?: string[]; priority?: number }): void {
+    if (updates.tags !== undefined) this.taskRepo.updateTags(taskId, updates.tags);
+    if (updates.priority !== undefined) this.taskRepo.updatePriority(taskId, updates.priority);
+  }
+
   getCostRepo(): CostRepo | null {
     return this.costRepo;
   }

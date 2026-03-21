@@ -1,6 +1,6 @@
 {
   "name": "@sooneocean/agw",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Agent Gateway — multi-agent task router for Claude, Codex, Gemini with combos, DAG, DSL",
   "type": "module",
   "bin": {
@@ -10,7 +10,8 @@
     "dev": "tsx src/daemon/server.ts",
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "agent",

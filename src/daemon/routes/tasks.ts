@@ -3,7 +3,7 @@ import type { TaskExecutor } from '../services/task-executor.js';
 import type { LlmRouter } from '../../router/llm-router.js';
 import type { AgentManager } from '../services/agent-manager.js';
 import type { AgentLearning } from '../services/agent-learning.js';
-import type { AppConfig } from '../../types.js';
+import type { AppConfig, TaskStatus } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
 
 export function registerTaskRoutes(
@@ -196,13 +196,44 @@ export function registerTaskRoutes(
     return reply.status(201).send(retried);
   });
 
+  // Delete a task (only completed/failed/cancelled)
+  app.delete<{ Params: { id: string } }>('/tasks/:id', async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    if (task.status === 'running' || task.status === 'routing') {
+      return reply.status(400).send({ error: 'Cannot delete a running task. Cancel it first.' });
+    }
+    const deleted = executor.deleteTask(request.params.id);
+    if (!deleted) return reply.status(404).send({ error: 'Task not found' });
+    return { deleted: true, taskId: request.params.id };
+  });
+
+  // Patch task metadata (tags, priority)
+  app.patch<{ Params: { id: string }; Body: { tags?: string[]; priority?: number } }>('/tasks/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          tags: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 10 },
+          priority: { type: 'integer', minimum: 1, maximum: 5 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    executor.updateTaskMeta(request.params.id, request.body);
+    return executor.getTask(request.params.id);
+  });
+
   // Search tasks with multi-field query
   app.get<{ Querystring: { q?: string; status?: string; agent?: string; tag?: string; since?: string; until?: string; limit?: string; offset?: string } }>(
     '/tasks/search',
     async (request) => {
       const { q, status, agent, tag, since, until, limit } = request.query;
       return executor.searchTasks({
-        q, status: status as any, agent, tag, since, until,
+        q, status: status as TaskStatus | undefined, agent, tag, since, until,
         limit: Math.min(parseInt(limit ?? '50', 10) || 50, 200),
       });
     },
