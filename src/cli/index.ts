@@ -23,6 +23,7 @@ import { registerBulkCommand } from './commands/bulk.js';
 import { registerHistogramCommand } from './commands/histogram.js';
 import { registerRankingCommand } from './commands/ranking.js';
 import { registerGrepCommand } from './commands/grep.js';
+import { registerMcpCommand } from './commands/mcp.js';
 import { VERSION } from '../version.js';
 
 export function createCli(): Command {
@@ -56,6 +57,7 @@ export function createCli(): Command {
   registerHistogramCommand(program);
   registerRankingCommand(program);
   registerGrepCommand(program);
+  registerMcpCommand(program);
 
   return program;
 }
