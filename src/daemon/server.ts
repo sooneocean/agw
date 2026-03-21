@@ -41,6 +41,7 @@ import { registerExportImportRoutes } from './routes/export-import.js';
 import { CapabilityDiscovery } from './services/capability-discovery.js';
 import { SnapshotManager } from './services/snapshot.js';
 import { AgentLearning } from './services/agent-learning.js';
+import { VERSION } from '../version.js';
 import { registerCapabilityRoutes } from './routes/capabilities.js';
 import { registerBatchRoutes } from './routes/batch.js';
 import { registerSnapshotRoutes } from './routes/snapshots.js';
@@ -100,6 +101,25 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
       transport: process.env.AGW_LOG_PRETTY ? { target: 'pino-pretty' } : undefined,
     },
     bodyLimit: 1_048_576,
+  });
+
+  await app.register(import('@fastify/swagger'), {
+    openapi: {
+      info: {
+        title: 'AGW — Agent Gateway',
+        description: 'Multi-agent task router for Claude Code, Codex CLI, and Gemini CLI',
+        version: VERSION,
+      },
+      servers: [{ url: `http://127.0.0.1:${config.port}` }],
+      components: {
+        securitySchemes: {
+          bearerAuth: { type: 'http', scheme: 'bearer' },
+        },
+      },
+    },
+  });
+  await app.register(import('@fastify/swagger-ui'), {
+    routePrefix: '/docs',
   });
 
   registerAuthMiddleware(app, config.authToken);
