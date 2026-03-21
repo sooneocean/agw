@@ -2,6 +2,16 @@ import type Database from 'better-sqlite3';
 import type { CostSummary } from '../types.js';
 
 export class CostRepo {
+  private static AGENT_COST_ESTIMATES: Record<string, number> = {
+    claude: 0.05,
+    codex: 0.02,
+    gemini: 0.03,
+  };
+
+  static getEstimatedCost(agentId: string): number {
+    return CostRepo.AGENT_COST_ESTIMATES[agentId] ?? 0.03;
+  }
+
   constructor(private db: Database.Database) {}
 
   record(taskId: string, agentId: string, cost: number, tokens: number): void {
@@ -51,5 +61,45 @@ export class CostRepo {
       dailyLimit,
       monthlyLimit,
     };
+  }
+
+  reserveQuota(taskId: string, agentId: string, dailyLimit: number, monthlyLimit: number): boolean {
+    const estimatedCost = CostRepo.getEstimatedCost(agentId);
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Check daily limit
+      const dailyUsed = this.getDailyCost();
+      if (dailyUsed + estimatedCost > dailyLimit) {
+        this.db.exec('ROLLBACK');
+        return false;
+      }
+
+      // Check monthly limit
+      const monthlyUsed = this.getMonthlyCost();
+      if (monthlyUsed + estimatedCost > monthlyLimit) {
+        this.db.exec('ROLLBACK');
+        return false;
+      }
+
+      // Insert reserved record WITH estimated cost (so concurrent SUM queries see it)
+      this.db.prepare(
+        `INSERT INTO cost_records (task_id, agent_id, cost, tokens, status, recorded_at)
+         VALUES (?, ?, ?, 0, 'reserved', ?)`
+      ).run(taskId, agentId, estimatedCost, new Date().toISOString());
+
+      this.db.exec('COMMIT');
+      return true;
+    } catch {
+      try { this.db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      return false;
+    }
+  }
+
+  finalizeQuota(taskId: string, actualCost: number, tokens: number = 0): void {
+    this.db.prepare(
+      `UPDATE cost_records SET cost = ?, tokens = ?, status = 'recorded'
+       WHERE task_id = ? AND status = 'reserved'`
+    ).run(actualCost, tokens, taskId);
   }
 }

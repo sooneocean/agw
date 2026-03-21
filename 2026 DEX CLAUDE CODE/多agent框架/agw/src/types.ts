@@ -1,5 +1,5 @@
 // Task types
-export type TaskStatus = 'pending' | 'routing' | 'running' | 'completed' | 'failed';
+export type TaskStatus = 'pending' | 'routing' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface TaskResult {
   exitCode: number;
@@ -26,6 +26,7 @@ export interface TaskDescriptor {
   result?: TaskResult;
   workflowId?: string;
   stepIndex?: number;
+  timeoutMs?: number;
 }
 
 export interface CreateTaskRequest {
@@ -35,6 +36,7 @@ export interface CreateTaskRequest {
   priority?: number;
   workflowId?: string;
   stepIndex?: number;
+  timeoutMs?: number;
 }
 
 // Priority: 1 = lowest, 5 = highest, 3 = default
@@ -56,6 +58,7 @@ export interface UnifiedAgent {
   describe(): AgentDescriptor;
   execute(task: TaskDescriptor): Promise<TaskResult>;
   healthCheck(): Promise<boolean>;
+  cancel?(taskId: string): boolean;
   on(event: string, listener: (...args: unknown[]) => void): this;
   removeListener(event: string, listener: (...args: unknown[]) => void): this;
 }
@@ -85,7 +88,11 @@ export type AuditEventType =
   | 'combo.step'
   | 'combo.iteration'
   | 'combo.completed'
-  | 'combo.failed';
+  | 'combo.failed'
+  | 'combo.partial'
+  | 'task.truncated'
+  | 'task.cancelled'
+  | 'routing.low_confidence';
 
 // Workflow types
 export type WorkflowStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -128,6 +135,7 @@ export interface ComboStep {
   prompt: string;
   /** Role label for this step (e.g., "analyzer", "reviewer", "synthesizer") */
   role?: string;
+  timeoutMs?: number;
 }
 
 export interface ComboDescriptor {

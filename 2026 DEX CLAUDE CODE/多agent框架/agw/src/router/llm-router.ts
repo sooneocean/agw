@@ -1,5 +1,9 @@
 import type { AgentDescriptor, RouteDecision } from '../types.js';
 import { keywordRoute } from './keyword-router.js';
+import { createLogger } from '../logger.js';
+import { RouteHistory, hashPrompt } from './route-history.js';
+
+const log = createLogger('llm-router');
 
 type CreateMessageFn = (params: {
   model: string;
@@ -14,12 +18,27 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   gemini: 'Open-ended research, multimodal understanding, broad tool integration',
 };
 
+export interface LlmRouterOptions {
+  createMessage?: CreateMessageFn;
+  confidenceThreshold?: number;
+  routeHistory?: RouteHistory;
+}
+
 export class LlmRouter {
+  private createMessage?: CreateMessageFn;
+  private confidenceThreshold: number;
+  private routeHistory?: RouteHistory;
+  private lastConfidence = new Map<string, number>();
+
   constructor(
     private apiKey: string,
     private model: string,
-    private createMessage?: CreateMessageFn,
-  ) {}
+    opts: LlmRouterOptions = {},
+  ) {
+    this.createMessage = opts.createMessage;
+    this.confidenceThreshold = opts.confidenceThreshold ?? 0.5;
+    this.routeHistory = opts.routeHistory;
+  }
 
   async route(
     prompt: string,
@@ -33,8 +52,25 @@ export class LlmRouter {
 
     const agentIds = availableAgents.map(a => a.id);
 
+    // Check route history for learned pattern
+    if (this.routeHistory) {
+      const hash = hashPrompt(prompt);
+      const suggestion = this.routeHistory.suggest(hash, agentIds);
+      if (suggestion) {
+        log.info({ agentId: suggestion.agentId, reason: suggestion.reason }, 'using historical route');
+        this.lastConfidence.set(hash, suggestion.confidence);
+        return suggestion;
+      }
+    }
+
     try {
-      return await this.callLlm(prompt, availableAgents, agentIds);
+      const decision = await this.callLlm(prompt, availableAgents, agentIds);
+      if (decision.confidence < this.confidenceThreshold) {
+        log.warn({ prompt: prompt.slice(0, 50), confidence: decision.confidence, threshold: this.confidenceThreshold }, 'LLM confidence too low, falling back');
+        return keywordRoute(prompt, agentIds);
+      }
+      this.lastConfidence.set(hashPrompt(prompt), decision.confidence);
+      return decision;
     } catch {
       return keywordRoute(prompt, agentIds);
     }
@@ -89,5 +125,16 @@ Return ONLY valid JSON: { "agentId": "...", "reason": "...", "confidence": 0.0-1
       const response = await client.messages.create(params as Parameters<typeof client.messages.create>[0]);
       return response as unknown as { content: Array<{ type: string; text: string }> };
     };
+  }
+
+  recordOutcome(prompt: string, agentId: string, success: boolean): void {
+    if (!this.routeHistory) return;
+    const hash = hashPrompt(prompt);
+    const confidence = this.lastConfidence.get(hash) ?? 0.5;
+    this.routeHistory.record(hash, agentId, success, confidence);
+    if (this.lastConfidence.size > 1000) {
+      const firstKey = this.lastConfidence.keys().next().value;
+      if (firstKey) this.lastConfidence.delete(firstKey);
+    }
   }
 }

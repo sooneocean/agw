@@ -132,6 +132,11 @@ export function registerTaskRoutes(
         reply.raw.end();
       }
     };
+    const onTruncated = (tid: string, stream: string, bytes: number) => {
+      if (tid === taskId) {
+        reply.raw.write(`event: truncated\ndata: ${JSON.stringify({ stream, bytes })}\n\n`);
+      }
+    };
 
     const cleanup = () => {
       clearTimeout(idleTimer);
@@ -139,12 +144,14 @@ export function registerTaskRoutes(
       executor.removeListener('task:stdout', onStdout);
       executor.removeListener('task:stderr', onStderr);
       executor.removeListener('task:done', onDone);
+      executor.removeListener('task:truncated', onTruncated);
     };
 
     executor.on('task:status', onStatus);
     executor.on('task:stdout', onStdout);
     executor.on('task:stderr', onStderr);
     executor.on('task:done', onDone);
+    executor.on('task:truncated', onTruncated);
 
     request.raw.on('close', cleanup);
   });
@@ -153,5 +160,15 @@ export function registerTaskRoutes(
     const limit = parseInt(request.query.limit ?? '20', 10);
     const offset = parseInt(request.query.offset ?? '0', 10);
     return executor.listTasks(limit, offset);
+  });
+
+  app.delete<{ Params: { taskId: string } }>('/tasks/:taskId', async (req, reply) => {
+    const { taskId } = req.params;
+    const task = executor.getTask(taskId);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    if (task.status !== 'running') return reply.status(409).send({ error: `Task is ${task.status}, not running` });
+    const cancelled = executor.cancel(taskId);
+    if (!cancelled) return reply.status(500).send({ error: 'Failed to cancel task' });
+    return reply.status(204).send();
   });
 }

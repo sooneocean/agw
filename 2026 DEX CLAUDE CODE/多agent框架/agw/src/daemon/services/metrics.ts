@@ -10,15 +10,25 @@ export interface MetricsSnapshot {
 export class MetricsCollector {
   private startTime = Date.now();
   private durations: number[] = [];
+  private sortedCache: number[] | null = null;
+  private maxSamples = 500;
 
   recordDuration(ms: number): void {
-    if (this.durations.length >= 500) this.durations.shift();
+    if (this.durations.length >= this.maxSamples) this.durations.shift();
     this.durations.push(ms);
+    this.sortedCache = null;
+  }
+
+  private getSorted(): number[] {
+    if (!this.sortedCache) {
+      this.sortedCache = [...this.durations].sort((a, b) => a - b);
+    }
+    return this.sortedCache;
   }
 
   getPerformance(): { avgDurationMs: number; p95DurationMs: number } {
     if (this.durations.length === 0) return { avgDurationMs: 0, p95DurationMs: 0 };
-    const sorted = [...this.durations].sort((a, b) => a - b);
+    const sorted = this.getSorted();
     const avg = sorted.reduce((a, b) => a + b, 0) / sorted.length;
     const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
     return { avgDurationMs: Math.round(avg), p95DurationMs: p95 };

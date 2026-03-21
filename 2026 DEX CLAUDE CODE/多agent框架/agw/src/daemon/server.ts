@@ -16,6 +16,7 @@ import { TaskExecutor } from './services/task-executor.js';
 import { WorkflowExecutor } from './services/workflow-executor.js';
 import { ComboExecutor } from './services/combo-executor.js';
 import { LlmRouter } from '../router/llm-router.js';
+import { RouteHistory } from '../router/route-history.js';
 import { MetricsCollector } from './services/metrics.js';
 import { CircuitBreakerRegistry } from './services/circuit-breaker.js';
 import { TemplateEngine } from './services/template-engine.js';
@@ -35,6 +36,8 @@ import { ReplayManager } from './services/replay.js';
 import { registerSchedulerRoutes } from './routes/scheduler.js';
 import { registerReplayRoutes } from './routes/replay.js';
 import { registerExportImportRoutes } from './routes/export-import.js';
+import { logger } from '../logger.js';
+import { AutoScaler } from './services/auto-scaler.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -55,14 +58,27 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const workflowRepo = new WorkflowRepo(db);
   const comboRepo = new ComboRepo(db);
   const memoryRepo = new MemoryRepo(db);
+  const routeHistory = new RouteHistory(db);
 
   const agentManager = new AgentManager(agentRepo, auditRepo, config);
+  const autoScaler = new AutoScaler({
+    minConcurrency: 1,
+    maxConcurrency: 10,
+    scaleUpThreshold: 3,
+    cooldownMs: 30_000,
+    errorRateThreshold: 0.5,
+  });
+  const router = new LlmRouter(config.anthropicApiKey, config.routerModel, {
+    confidenceThreshold: 0.5,
+    routeHistory,
+  });
   const executor = new TaskExecutor(
     taskRepo, auditRepo, agentManager, costRepo,
     config.maxConcurrencyPerAgent,
     config.dailyCostLimit, config.monthlyCostLimit, db,
+    autoScaler,
+    (prompt, agentId, success) => router.recordOutcome(prompt, agentId, success),
   );
-  const router = new LlmRouter(config.anthropicApiKey, config.routerModel);
   const workflowExecutor = new WorkflowExecutor(workflowRepo, auditRepo, executor, router, agentManager);
   const comboExecutor = new ComboExecutor(comboRepo, auditRepo, executor, agentManager);
   const metrics = new MetricsCollector();
@@ -74,7 +90,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager);
 
   const app = Fastify({
-    logger: false,
+    loggerInstance: logger as any,
     bodyLimit: 1_048_576,
   });
 
