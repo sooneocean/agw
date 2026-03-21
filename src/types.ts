@@ -160,6 +160,7 @@ export interface CreateComboRequest {
   workingDirectory?: string;
   priority?: number;
   maxIterations?: number; // for review-loop, default 3
+  timeoutMs?: number;
 }
 
 // Built-in combo presets

@@ -48,6 +48,7 @@ import { registerSnapshotRoutes } from './routes/snapshots.js';
 import { registerEventRoutes } from './routes/events.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerNoteRoutes } from './routes/notes.js';
+import { registerPrometheusRoutes } from './routes/prometheus.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -144,6 +145,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerEventRoutes(app, executor, comboExecutor);
   registerAuditRoutes(app, auditRepo);
   registerNoteRoutes(app, noteRepo);
+  registerPrometheusRoutes(app, metrics, taskRepo, costRepo);
 
   app.register(import('./routes/ui.js'));
 

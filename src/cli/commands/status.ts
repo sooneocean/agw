@@ -7,10 +7,15 @@ export function registerStatusCommand(program: Command): void {
   program
     .command('status <taskId>')
     .description('Check task status')
-    .action(async (taskId: string) => {
+    .option('--json', 'Output raw JSON')
+    .action(async (taskId: string, opts: { json?: boolean }) => {
       const client = new HttpClient();
       try {
         const task = await client.get<TaskDescriptor>(`/tasks/${taskId}`);
+        if (opts.json) {
+          console.log(JSON.stringify(task, null, 2));
+          return;
+        }
         console.log(`Task:   ${task.taskId}`);
         console.log(`Status: ${task.status}`);
         console.log(`Agent:  ${task.assignedAgent ?? 'not assigned'}`);

@@ -35,6 +35,7 @@ export function registerComboRoutes(
         workingDirectory: { type: 'string' },
         priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
         maxIterations: { type: 'integer', minimum: 1, maximum: 10, default: 3 },
+        timeoutMs: { type: 'integer', minimum: 1000, maximum: 3600000 },
       },
       additionalProperties: false,
     },

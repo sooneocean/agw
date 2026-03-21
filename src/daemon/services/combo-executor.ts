@@ -131,7 +131,8 @@ export class ComboExecutor extends EventEmitter {
   private async runCombo(comboId: string, request: CreateComboRequest): Promise<void> {
     this.comboRepo.updateStatus(comboId, 'running');
 
-    try {
+    const timeoutMs = request.timeoutMs;
+    const execution = (async () => {
       switch (request.pattern) {
         case 'pipeline':
           await this.executePipeline(comboId, request);
@@ -146,16 +147,28 @@ export class ComboExecutor extends EventEmitter {
           await this.executeDebate(comboId, request);
           break;
       }
+    })();
+
+    try {
+      if (timeoutMs && timeoutMs > 0) {
+        await Promise.race([
+          execution,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Combo timeout after ${timeoutMs}ms`)), timeoutMs)
+          ),
+        ]);
+      } else {
+        await execution;
+      }
       this.comboRepo.updateStatus(comboId, 'completed');
       this.auditRepo.log(null, 'combo.completed', { comboId });
       this.emit('combo:done', comboId);
-      this.cancelledCombos.delete(comboId);
     } catch (err) {
       this.comboRepo.updateStatus(comboId, 'failed');
       this.auditRepo.log(null, 'combo.failed', { comboId, error: (err as Error).message });
       this.emit('combo:done', comboId);
-      this.cancelledCombos.delete(comboId);
     }
+    this.cancelledCombos.delete(comboId);
   }
 
   /** Pipeline: each step's output feeds into the next step's prompt */
