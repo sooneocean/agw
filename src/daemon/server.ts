@@ -96,7 +96,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerCostRoutes(app, costRepo, config);
   registerComboRoutes(app, comboExecutor, config);
   registerMemoryRoutes(app, memoryRepo);
-  registerHealthRoutes(app, metrics, agentManager, cbRegistry, taskRepo, costRepo, config);
+  registerHealthRoutes(app, metrics, agentManager, cbRegistry, taskRepo, costRepo, config, dbPath, scheduler, webhookManager);
   registerTemplateRoutes(app, templateEngine, executor, router, agentManager, config);
   registerWebhookRoutes(app, webhookManager);
   registerSchedulerRoutes(app, scheduler);

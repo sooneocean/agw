@@ -4,7 +4,10 @@ import type { AgentManager } from '../services/agent-manager.js';
 import type { CircuitBreakerRegistry } from '../services/circuit-breaker.js';
 import type { TaskRepo } from '../../store/task-repo.js';
 import type { CostRepo } from '../../store/cost-repo.js';
+import type { Scheduler } from '../services/scheduler.js';
+import type { WebhookManager } from '../services/webhook-manager.js';
 import type { AppConfig } from '../../types.js';
+import fs from 'node:fs';
 
 export function registerHealthRoutes(
   app: FastifyInstance,
@@ -14,9 +17,12 @@ export function registerHealthRoutes(
   taskRepo: TaskRepo,
   costRepo: CostRepo | null,
   config: AppConfig,
+  dbPath?: string,
+  scheduler?: Scheduler,
+  webhookManager?: WebhookManager,
 ): void {
   app.get('/health', async () => {
-    return { status: 'ok', uptime: metrics.getUptime(), version: config.version ?? '1.4.0' };
+    return { status: 'ok', uptime: metrics.getUptime(), version: '1.8.0' };
   });
 
   app.get('/health/ready', async (_request, reply) => {
@@ -57,6 +63,9 @@ export function registerHealthRoutes(
         monthlyCostLimit: config.monthlyCostLimit,
         maxConcurrencyPerAgent: config.maxConcurrencyPerAgent,
       },
+      scheduler: scheduler ? { jobCount: scheduler.listJobs().length, enabledJobs: scheduler.listJobs().filter(j => j.enabled).length } : null,
+      webhooks: webhookManager ? { count: webhookManager.getWebhooks().length } : null,
+      db: dbPath ? { sizeMB: Math.round((fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0) / 1048576 * 100) / 100 } : null,
     };
   });
 }

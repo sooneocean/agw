@@ -21,16 +21,18 @@ export function registerTaskRoutes(
         preferredAgent: { type: 'string' },
         workingDirectory: { type: 'string' },
         priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
+        timeoutMs: { type: 'integer', minimum: 1000, maximum: 3600000 },
+        tags: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 10 },
       },
       additionalProperties: false,
     },
   };
 
-  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number } }>(
+  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number; timeoutMs?: number; tags?: string[] } }>(
     '/tasks',
     { schema: createTaskSchema },
     async (request, reply) => {
-      const { prompt, preferredAgent, priority } = request.body;
+      const { prompt, preferredAgent, priority, timeoutMs, tags } = request.body;
 
       // Validate workspace (H2: path traversal protection)
       let workingDirectory: string;
@@ -47,7 +49,7 @@ export function registerTaskRoutes(
 
       let lowConfidence = false;
       const task = await executor.execute(
-        { prompt, preferredAgent, workingDirectory, priority },
+        { prompt, preferredAgent, workingDirectory, priority, timeoutMs, tags },
         async (p) => {
           const decision = await router.route(p, availableAgents, preferredAgent);
           if (decision.confidence < 0.5) lowConfidence = true;
@@ -149,9 +151,21 @@ export function registerTaskRoutes(
     request.raw.on('close', cleanup);
   });
 
-  app.get<{ Querystring: { limit?: string; offset?: string } }>('/tasks', async (request) => {
+  // Cancel a running task
+  app.post<{ Params: { id: string } }>('/tasks/:id/cancel', async (request, reply) => {
+    const cancelled = executor.cancelTask(request.params.id);
+    if (!cancelled) {
+      return reply.status(400).send({ error: 'Task cannot be cancelled (not running/pending)' });
+    }
+    return { cancelled: true, taskId: request.params.id };
+  });
+
+  app.get<{ Querystring: { limit?: string; offset?: string; tag?: string } }>('/tasks', async (request) => {
     const limit = Math.min(Math.max(parseInt(request.query.limit ?? '20', 10) || 20, 1), 200);
     const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);
+    if (request.query.tag) {
+      return executor.listTasksByTag(request.query.tag, limit);
+    }
     return executor.listTasks(limit, offset);
   });
 }

@@ -1,5 +1,5 @@
 // Task types
-export type TaskStatus = 'pending' | 'routing' | 'running' | 'completed' | 'failed';
+export type TaskStatus = 'pending' | 'routing' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface TaskResult {
   exitCode: number;
@@ -21,6 +21,8 @@ export interface TaskDescriptor {
   assignedAgent?: string;
   routingReason?: string;
   priority: number;
+  tags?: string[];
+  timeoutMs?: number;
   createdAt: string;
   completedAt?: string;
   result?: TaskResult;
@@ -33,6 +35,8 @@ export interface CreateTaskRequest {
   preferredAgent?: string;
   workingDirectory?: string;
   priority?: number;
+  timeoutMs?: number;
+  tags?: string[];
   workflowId?: string;
   stepIndex?: number;
 }
@@ -85,7 +89,9 @@ export type AuditEventType =
   | 'combo.step'
   | 'combo.iteration'
   | 'combo.completed'
-  | 'combo.failed';
+  | 'combo.failed'
+  | 'task.cancelled'
+  | 'task.timeout';
 
 // Workflow types
 export type WorkflowStatus = 'pending' | 'running' | 'completed' | 'failed';

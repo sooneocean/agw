@@ -11,7 +11,9 @@ export function registerRunCommand(program: Command): void {
     .option('--background', 'Run in background, return taskId')
     .option('--cwd <path>', 'Working directory for the agent')
     .option('--priority <n>', 'Task priority 1-5 (default 3)', '3')
-    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string }) => {
+    .option('--timeout <ms>', 'Timeout in milliseconds')
+    .option('--tag <tags>', 'Comma-separated tags')
+    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string }) => {
       const client = new HttpClient();
       let prompt = promptParts.join(' ');
 
@@ -29,6 +31,8 @@ export function registerRunCommand(program: Command): void {
           preferredAgent: options.agent,
           workingDirectory: options.cwd,
           priority: parseInt(options.priority ?? '3', 10),
+          timeoutMs: options.timeout ? parseInt(options.timeout, 10) : undefined,
+          tags: options.tag ? options.tag.split(',').map(t => t.trim()) : undefined,
         });
 
         if (options.background) {

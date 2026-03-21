@@ -22,6 +22,8 @@ interface TaskRow {
   completed_at: string | null;
   workflow_id: string | null;
   step_index: number | null;
+  tags: string;
+  timeout_ms: number | null;
 }
 
 function rowToTask(row: TaskRow): TaskDescriptor {
@@ -39,6 +41,8 @@ function rowToTask(row: TaskRow): TaskDescriptor {
   if (row.completed_at) task.completedAt = row.completed_at;
   if (row.workflow_id) task.workflowId = row.workflow_id;
   if (row.step_index !== null) task.stepIndex = row.step_index;
+  if (row.tags && row.tags !== '[]') task.tags = JSON.parse(row.tags);
+  if (row.timeout_ms) task.timeoutMs = row.timeout_ms;
   if (row.exit_code !== null) {
     task.result = {
       exitCode: row.exit_code,
@@ -57,11 +61,11 @@ function rowToTask(row: TaskRow): TaskDescriptor {
 export class TaskRepo {
   constructor(private db: Database.Database) {}
 
-  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex'>): void {
+  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex' | 'tags' | 'timeoutMs'>): void {
     this.db.prepare(
-      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null);
+      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index, tags, timeout_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null, JSON.stringify(task.tags ?? []), task.timeoutMs ?? null);
   }
 
   listQueued(): TaskDescriptor[] {
@@ -120,6 +124,14 @@ export class TaskRepo {
     const rows = this.db.prepare(
       'SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC'
     ).all(status) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  listByTag(tag: string, limit: number = 50): TaskDescriptor[] {
+    const escaped = tag.replace(/[%_]/g, c => `\\${c}`);
+    const rows = this.db.prepare(
+      "SELECT * FROM tasks WHERE tags LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?"
+    ).all(`%"${escaped}"%`, limit) as TaskRow[];
     return rows.map(rowToTask);
   }
 

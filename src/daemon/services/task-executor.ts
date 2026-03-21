@@ -13,6 +13,7 @@ export class TaskExecutor extends EventEmitter {
   private costRepo: CostRepo | null;
   private dailyCostLimit?: number;
   private monthlyCostLimit?: number;
+  private activeAbortControllers = new Map<string, AbortController>();
 
   constructor(
     private taskRepo: TaskRepo,
@@ -61,6 +62,9 @@ export class TaskExecutor extends EventEmitter {
     const createdAt = new Date().toISOString();
     const priority = request.priority ?? 3;
 
+    const timeoutMs = request.timeoutMs;
+    const tags = request.tags;
+
     // Create task
     this.taskRepo.create({
       taskId,
@@ -72,6 +76,8 @@ export class TaskExecutor extends EventEmitter {
       preferredAgent: request.preferredAgent,
       workflowId: request.workflowId,
       stepIndex: request.stepIndex,
+      tags,
+      timeoutMs,
     });
     this.auditRepo.log(taskId, 'task.created', { prompt: request.prompt, priority });
     this.emit('task:status', taskId, { status: 'pending' });
@@ -115,6 +121,19 @@ export class TaskExecutor extends EventEmitter {
       adapter.on('stdout', onStdout);
       adapter.on('stderr', onStderr);
 
+      // Set up abort controller for cancellation
+      const ac = new AbortController();
+      this.activeAbortControllers.set(taskId, ac);
+
+      // Set up timeout if configured
+      let timeoutTimer: NodeJS.Timeout | undefined;
+      if (timeoutMs && timeoutMs > 0) {
+        timeoutTimer = setTimeout(() => {
+          ac.abort();
+          this.auditRepo.log(taskId, 'task.timeout', { timeoutMs });
+        }, timeoutMs);
+      }
+
       const task: TaskDescriptor = {
         taskId,
         prompt: request.prompt,
@@ -123,10 +142,21 @@ export class TaskExecutor extends EventEmitter {
         priority,
         assignedAgent: agentId,
         createdAt,
+        tags,
+        timeoutMs,
       };
 
       try {
-        const result = await adapter.execute(task);
+        const resultPromise = adapter.execute(task);
+
+        // Race between execution and abort
+        const result = await new Promise<Awaited<typeof resultPromise>>((resolve, reject) => {
+          const onAbort = () => reject(new Error(ac.signal.reason ?? 'Task cancelled'));
+          if (ac.signal.aborted) { onAbort(); return; }
+          ac.signal.addEventListener('abort', onAbort, { once: true });
+          resultPromise.then(resolve, reject);
+        });
+
         const finalStatus = result.exitCode === 0 ? 'completed' : 'failed';
         this.taskRepo.updateResult(taskId, result);
         this.taskRepo.updateStatus(taskId, finalStatus);
@@ -139,6 +169,8 @@ export class TaskExecutor extends EventEmitter {
 
         this.emit('task:done', taskId, result);
       } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        this.activeAbortControllers.delete(taskId);
         adapter.removeListener('stdout', onStdout);
         adapter.removeListener('stderr', onStderr);
       }
@@ -176,6 +208,27 @@ export class TaskExecutor extends EventEmitter {
 
   listTasks(limit: number = 20, offset: number = 0): TaskDescriptor[] {
     return this.taskRepo.list(limit, offset);
+  }
+
+  listTasksByTag(tag: string, limit: number = 50): TaskDescriptor[] {
+    return this.taskRepo.listByTag(tag, limit);
+  }
+
+  cancelTask(taskId: string): boolean {
+    const task = this.taskRepo.getById(taskId);
+    if (!task || (task.status !== 'running' && task.status !== 'pending' && task.status !== 'routing')) {
+      return false;
+    }
+
+    const ac = this.activeAbortControllers.get(taskId);
+    if (ac) {
+      ac.abort('Cancelled by user');
+    }
+
+    this.taskRepo.updateStatus(taskId, 'cancelled');
+    this.auditRepo.log(taskId, 'task.cancelled', {});
+    this.emit('task:status', taskId, { status: 'cancelled' });
+    return true;
   }
 
   getCostRepo(): CostRepo | null {
