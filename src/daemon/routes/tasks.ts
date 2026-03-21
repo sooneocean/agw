@@ -196,6 +196,18 @@ export function registerTaskRoutes(
     return reply.status(201).send(retried);
   });
 
+  // Search tasks with multi-field query
+  app.get<{ Querystring: { q?: string; status?: string; agent?: string; tag?: string; since?: string; until?: string; limit?: string; offset?: string } }>(
+    '/tasks/search',
+    async (request) => {
+      const { q, status, agent, tag, since, until, limit } = request.query;
+      return executor.searchTasks({
+        q, status: status as any, agent, tag, since, until,
+        limit: Math.min(parseInt(limit ?? '50', 10) || 50, 200),
+      });
+    },
+  );
+
   app.get<{ Querystring: { limit?: string; offset?: string; tag?: string } }>('/tasks', async (request) => {
     const limit = Math.min(Math.max(parseInt(request.query.limit ?? '20', 10) || 20, 1), 200);
     const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);

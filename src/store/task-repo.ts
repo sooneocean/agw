@@ -135,6 +135,55 @@ export class TaskRepo {
     return rows.map(rowToTask);
   }
 
+  search(query: {
+    q?: string;
+    status?: TaskStatus;
+    agent?: string;
+    tag?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+  }): TaskDescriptor[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (query.q) {
+      const escaped = query.q.replace(/[%_]/g, c => `\\${c}`);
+      conditions.push("prompt LIKE ? ESCAPE '\\'");
+      params.push(`%${escaped}%`);
+    }
+    if (query.status) {
+      conditions.push('status = ?');
+      params.push(query.status);
+    }
+    if (query.agent) {
+      conditions.push('assigned_agent = ?');
+      params.push(query.agent);
+    }
+    if (query.tag) {
+      const escaped = query.tag.replace(/[%_]/g, c => `\\${c}`);
+      conditions.push("tags LIKE ? ESCAPE '\\'");
+      params.push(`%"${escaped}"%`);
+    }
+    if (query.since) {
+      conditions.push('created_at >= ?');
+      params.push(query.since);
+    }
+    if (query.until) {
+      conditions.push('created_at <= ?');
+      params.push(query.until);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(query.limit ?? 50, 200);
+    params.push(limit);
+
+    const rows = this.db.prepare(
+      `SELECT * FROM tasks ${where} ORDER BY created_at DESC LIMIT ?`
+    ).all(...params) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
   countByStatus(): Record<string, number> {
     const rows = this.db.prepare(
       'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'

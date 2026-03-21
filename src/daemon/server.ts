@@ -85,14 +85,18 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const snapshotManager = new SnapshotManager(dbPath);
   const agentLearning = new AgentLearning(db);
 
+  const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST;
   const app = Fastify({
-    logger: false,
+    logger: !isTest && {
+      level: process.env.AGW_LOG_LEVEL ?? 'info',
+      transport: process.env.AGW_LOG_PRETTY ? { target: 'pino-pretty' } : undefined,
+    },
     bodyLimit: 1_048_576,
   });
 
   registerAuthMiddleware(app, config.authToken);
 
-  registerAgentRoutes(app, agentManager);
+  registerAgentRoutes(app, agentManager, agentLearning, taskRepo, costRepo);
   registerTaskRoutes(app, executor, router, agentManager, config, agentLearning);
   registerWorkflowRoutes(app, workflowExecutor, config);
   registerCostRoutes(app, costRepo, config);

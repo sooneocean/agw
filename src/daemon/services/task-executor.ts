@@ -214,6 +214,10 @@ export class TaskExecutor extends EventEmitter {
     return this.taskRepo.listByTag(tag, limit);
   }
 
+  searchTasks(query: Parameters<TaskRepo['search']>[0]): TaskDescriptor[] {
+    return this.taskRepo.search(query);
+  }
+
   cancelTask(taskId: string): boolean {
     const task = this.taskRepo.getById(taskId);
     if (!task || (task.status !== 'running' && task.status !== 'pending' && task.status !== 'routing')) {
