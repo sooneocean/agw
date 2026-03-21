@@ -20,6 +20,9 @@ import { registerTaskActionsCli } from './commands/task-actions-cli.js';
 import { registerTemplateCli } from './commands/template-cli.js';
 import { registerInfoCommand } from './commands/info.js';
 import { registerBulkCommand } from './commands/bulk.js';
+import { registerHistogramCommand } from './commands/histogram.js';
+import { registerRankingCommand } from './commands/ranking.js';
+import { registerGrepCommand } from './commands/grep.js';
 import { VERSION } from '../version.js';
 
 export function createCli(): Command {
@@ -50,6 +53,9 @@ export function createCli(): Command {
   registerTemplateCli(program);
   registerInfoCommand(program);
   registerBulkCommand(program);
+  registerHistogramCommand(program);
+  registerRankingCommand(program);
+  registerGrepCommand(program);
 
   return program;
 }
