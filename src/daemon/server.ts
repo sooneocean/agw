@@ -52,6 +52,7 @@ import { registerEventRoutes } from './routes/events.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerNoteRoutes } from './routes/notes.js';
 import { registerPrometheusRoutes } from './routes/prometheus.js';
+import { registerMcpTransportRoute } from './routes/mcp-transport.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -161,6 +162,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerAuditRoutes(app, auditRepo);
   registerNoteRoutes(app, noteRepo);
   registerPrometheusRoutes(app, metrics, taskRepo, costRepo);
+  registerMcpTransportRoute(app);
 
   app.register(import('./routes/ui.js'));
 

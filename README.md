@@ -72,6 +72,39 @@ open http://127.0.0.1:4927/ui
 | **Task Pinning** | Pin important tasks to prevent auto-purge |
 | **OpenAPI Docs** | Auto-generated Swagger UI at /docs |
 
+## MCP Server
+
+AGW is an MCP (Model Context Protocol) server. Connect from any MCP-compatible IDE.
+
+### Setup (Claude Code)
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "agw": { "command": "agw", "args": ["mcp"] }
+  }
+}
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `agw_run` | Submit task to best AI agent (prompt, agent, priority, tags, timeout) |
+| `agw_combo` | Multi-agent collaboration (preset or custom pattern) |
+| `agw_status` | Check task status and results |
+| `agw_search` | Search tasks by prompt, status, agent, tag |
+| `agw_agents` | List available agents with health status |
+
+### MCP Resources
+
+| URI | Content |
+|-----|---------|
+| `agw://agents` | Agent list with health status and capabilities |
+| `agw://stats` | System statistics, agent ranking, costs |
+
 ## Configuration
 
 Config file: `~/.agw/config.json`
@@ -215,6 +248,7 @@ Environment variables (override config file):
 | POST | `/webhooks/test` | Send test webhook event |
 | POST | `/combos/:id/cancel` | Cancel a running combo |
 | GET | `/agents/:id/config` | Agent configuration |
+| GET | `/mcp` | MCP server info |
 | GET | `/docs` | Swagger UI (OpenAPI) |
 | GET | `/ui` | Web dashboard |
 
@@ -255,13 +289,14 @@ agw version              Show version + check for updates
 agw info                Show system information summary
 agw queue               Show pending execution queue
 agw export              Export tasks (--format csv -o file.csv)
+agw mcp                Start MCP server (stdio transport for IDE integration)
 agw daemon start|stop|status
 ```
 
 ## Development
 
 ```bash
-npm test          # Run 360+ tests
+npm test          # Run 405+ tests
 npm run build     # TypeScript compile
 npm run dev       # Start dev server
 ```
