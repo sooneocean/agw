@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────┐
-│   CLI Client    │  agw run / status / history / costs / workflow
+│   CLI Client    │  agw run / status / cancel / history / costs / combo / workflow
 │   (commander)   │
 └────────┬────────┘
          │ HTTP REST + SSE
@@ -29,10 +29,11 @@
 │          │          │                               │
 │  ┌───────▼───┐ ┌────▼─────┐ ┌──────────────────┐   │
 │  │ TaskQueue │ │LLM Router│ │ WorkflowExecutor  │   │
-│  │ (priority │ │ (Haiku)  │ │ (seq / parallel)  │   │
-│  │  + conc.) │ │ +Keyword │ │                   │   │
-│  └───────────┘ │ Fallback │ └──────────────────┘   │
-│                └──────────┘                         │
+│  │ (heap +   │ │ +History │ │ (seq / parallel)  │   │
+│  │ auto-scl) │ │ +Keyword │ ├──────────────────┤   │
+│  └───────────┘ │ +Confid. │ │  ComboExecutor    │   │
+│                └──────────┘ │ (4 patterns)      │   │
+│                             └──────────────────┘   │
 │  ┌─────────────────────────────────────────────┐    │
 │  │           Agent Adapters                     │    │
 │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐       │    │
@@ -46,7 +47,8 @@
 │  ┌─────────────────────────────────────────────┐    │
 │  │            SQLite (better-sqlite3)           │    │
 │  │  tasks │ agents │ audit_log │ workflows │    │    │
-│  │  cost_records                                │    │
+│  │  cost_records │ combos │ memory │             │    │
+│  │  route_history                               │    │
 │  └─────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────┘
 ```
@@ -64,15 +66,19 @@ agw/
 │   │   ├── claude-adapter.ts     # Claude Code: --print --output-format json
 │   │   ├── codex-adapter.ts      # Codex CLI: exec subcommand
 │   │   └── gemini-adapter.ts     # Gemini CLI
+│   ├── logger.ts                  # Pino structured logging factory
 │   ├── router/
-│   │   ├── llm-router.ts         # Haiku classifier with keyword fallback
-│   │   └── keyword-router.ts     # Regex-based pattern matching
+│   │   ├── llm-router.ts         # Haiku classifier + confidence threshold + history
+│   │   ├── keyword-router.ts     # Regex-based pattern matching
+│   │   └── route-history.ts      # Prompt-hash learning from task outcomes
 │   ├── store/
 │   │   ├── db.ts                 # SQLite schema + migrations + seed
 │   │   ├── task-repo.ts          # Task CRUD + priority queue queries
 │   │   ├── agent-repo.ts         # Agent CRUD + availability
 │   │   ├── audit-repo.ts         # Append-only audit log
-│   │   ├── cost-repo.ts          # Cost aggregation (daily/monthly/agent)
+│   │   ├── cost-repo.ts          # Cost aggregation + atomic quota reservation
+│   │   ├── combo-repo.ts        # Combo CRUD with JSON serialization
+│   │   ├── memory-repo.ts       # Key-value shared context store
 │   │   └── workflow-repo.ts      # Workflow CRUD + atomic taskId append
 │   ├── daemon/
 │   │   ├── server.ts             # Fastify app assembly + lifecycle
@@ -80,24 +86,30 @@ agw/
 │   │   │   ├── auth.ts           # Bearer token + loopback-only fallback
 │   │   │   └── workspace.ts      # Path validation + allowedWorkspaces
 │   │   ├── routes/
-│   │   │   ├── tasks.ts          # POST/GET /tasks, SSE /tasks/:id/stream
+│   │   │   ├── tasks.ts          # POST/GET/DELETE /tasks, SSE stream + truncation
+│   │   │   ├── combos.ts        # POST/GET /combos, presets
 │   │   │   ├── agents.ts         # GET /agents, POST health check
 │   │   │   ├── workflows.ts      # POST/GET /workflows (async execution)
 │   │   │   ├── costs.ts          # GET /costs summary
+│   │   │   ├── memory.ts        # GET/POST /memory
 │   │   │   └── ui.ts             # Serve Web UI HTML
 │   │   └── services/
-│   │       ├── task-executor.ts   # Task lifecycle: route → queue → execute → store
-│   │       ├── task-queue.ts      # Priority queue with per-agent concurrency
+│   │       ├── task-executor.ts   # Task lifecycle + cancel + auto-scale callback
+│   │       ├── task-queue.ts      # Binary heap + per-agent dynamic concurrency
+│   │       ├── priority-heap.ts   # Generic binary max-heap
+│   │       ├── combo-executor.ts  # 4 combo patterns (pipeline/MR/review/debate)
 │   │       ├── agent-manager.ts   # Adapter lifecycle + parallel health checks
+│   │       ├── auto-scaler.ts    # Dynamic concurrency adjustment
+│   │       ├── metrics.ts        # Lazy sorted cache for percentile
 │   │       └── workflow-executor.ts # Sequential/parallel step execution
 │   └── cli/
 │       ├── index.ts              # Commander.js program setup
 │       ├── http-client.ts        # REST + SSE client with auth header
-│       └── commands/             # run, status, history, agents, daemon, costs, workflow
+│       └── commands/             # run, status, cancel, history, agents, daemon, costs, workflow, combo
 ├── ui/index.html                 # Self-contained Web UI dashboard
 └── tests/
-    ├── unit/       (13 files)    # Repos, adapters, router, queue, auth
-    └── integration/ (8 files)    # Routes, executor, SSE, validation, auth
+    ├── unit/       (31 files)    # Repos, adapters, router, queue, heap, metrics, auth
+    └── integration/ (14 files)   # Routes, executor, SSE, combos, validation, auth
 ```
 
 ## Key Design Decisions
@@ -122,12 +134,13 @@ agw/
 4. Workspace validation: realpath + allowedWorkspaces check
 5. TaskExecutor.execute():
    a. Create task (pending) → audit log
-   b. Route: preferredAgent > LLM classifier > keyword fallback
+   b. Reserve cost quota (atomic BEGIN IMMEDIATE)
+   c. Route: preferredAgent > route history > LLM (confidence ≥ 0.5) > keyword fallback
    c. Enqueue in TaskQueue (respects per-agent concurrency)
    d. When slot available: set status=running, spawn agent via stdin
-   e. Stream stdout/stderr → SSE + buffer (10MB cap)
-   f. On completion: store result, record cost, update status
-6. Return TaskDescriptor with result
+   f. Stream stdout/stderr → SSE + buffer (10MB cap, truncation warning)
+   g. On completion: finalize cost, record route outcome, auto-scale, update status
+7. Return TaskDescriptor with result
 ```
 
 ## Security Model
@@ -143,6 +156,6 @@ agw/
 
 ## Test Coverage
 
-76 tests across 21 files:
-- **Unit (13)**: repos, adapters, router, queue, auth middleware, config
-- **Integration (8)**: routes (tasks/agents/workflows/costs), executor, SSE, validation, auth
+231 tests across 45 files:
+- **Unit (31)**: repos, adapters, router, route-history, queue, heap, metrics, combo-executor, auth, config
+- **Integration (14)**: routes (tasks/agents/workflows/costs/combos/templates), executor, SSE, validation, auth
