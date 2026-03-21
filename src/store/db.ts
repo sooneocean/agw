@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   step_index INTEGER,
   tags TEXT NOT NULL DEFAULT '[]',
   timeout_ms INTEGER,
-  pinned INTEGER NOT NULL DEFAULT 0
+  pinned INTEGER NOT NULL DEFAULT 0,
+  depends_on TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agents (

@@ -25,16 +25,17 @@ export function registerTaskRoutes(
         priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
         timeoutMs: { type: 'integer', minimum: 1000, maximum: 3600000 },
         tags: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 10 },
+        dependsOn: { type: 'string' },
       },
       additionalProperties: false,
     },
   };
 
-  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number; timeoutMs?: number; tags?: string[] } }>(
+  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number; timeoutMs?: number; tags?: string[]; dependsOn?: string } }>(
     '/tasks',
     { schema: createTaskSchema },
     async (request, reply) => {
-      const { prompt, preferredAgent, priority, timeoutMs, tags } = request.body;
+      const { prompt, preferredAgent, priority, timeoutMs, tags, dependsOn } = request.body;
 
       // Validate workspace (H2: path traversal protection)
       let workingDirectory: string;
@@ -61,7 +62,7 @@ export function registerTaskRoutes(
 
       let lowConfidence = false;
       const task = await executor.execute(
-        { prompt, preferredAgent: preferredAgent ?? learnedAgent, workingDirectory, priority, timeoutMs, tags },
+        { prompt, preferredAgent: preferredAgent ?? learnedAgent, workingDirectory, priority, timeoutMs, tags, dependsOn },
         async (p) => {
           const decision = await router.route(p, availableAgents, preferredAgent ?? learnedAgent);
           if (decision.confidence < 0.5) lowConfidence = true;

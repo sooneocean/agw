@@ -13,8 +13,9 @@ export function registerRunCommand(program: Command): void {
     .option('--priority <n>', 'Task priority 1-5 (default 3)', '3')
     .option('--timeout <ms>', 'Timeout in milliseconds')
     .option('--tag <tags>', 'Comma-separated tags')
+    .option('--after <taskId>', 'Run after specified task completes (dependency)')
     .option('--raw', 'Output only stdout (pipe-friendly, no decorations)')
-    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string; raw?: boolean }) => {
+    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string; after?: string; raw?: boolean }) => {
       const client = new HttpClient();
       let prompt = promptParts.join(' ');
 
@@ -34,6 +35,7 @@ export function registerRunCommand(program: Command): void {
           priority: parseInt(options.priority ?? '3', 10),
           timeoutMs: options.timeout ? parseInt(options.timeout, 10) : undefined,
           tags: options.tag ? options.tag.split(',').map(t => t.trim()) : undefined,
+          dependsOn: options.after,
         });
 
         if (options.raw) {

@@ -24,6 +24,7 @@ export interface TaskDescriptor {
   tags?: string[];
   timeoutMs?: number;
   pinned?: boolean;
+  dependsOn?: string;
   createdAt: string;
   completedAt?: string;
   result?: TaskResult;
@@ -40,6 +41,7 @@ export interface CreateTaskRequest {
   tags?: string[];
   workflowId?: string;
   stepIndex?: number;
+  dependsOn?: string;
 }
 
 // Priority: 1 = lowest, 5 = highest, 3 = default

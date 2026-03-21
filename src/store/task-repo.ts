@@ -25,6 +25,7 @@ interface TaskRow {
   tags: string;
   timeout_ms: number | null;
   pinned: number;
+  depends_on: string | null;
 }
 
 function rowToTask(row: TaskRow): TaskDescriptor {
@@ -45,6 +46,7 @@ function rowToTask(row: TaskRow): TaskDescriptor {
   if (row.tags && row.tags !== '[]') task.tags = JSON.parse(row.tags);
   if (row.timeout_ms) task.timeoutMs = row.timeout_ms;
   if (row.pinned) task.pinned = true;
+  if (row.depends_on) task.dependsOn = row.depends_on;
   if (row.exit_code !== null) {
     task.result = {
       exitCode: row.exit_code,
@@ -63,11 +65,11 @@ function rowToTask(row: TaskRow): TaskDescriptor {
 export class TaskRepo {
   constructor(private db: Database.Database) {}
 
-  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex' | 'tags' | 'timeoutMs'>): void {
+  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex' | 'tags' | 'timeoutMs' | 'dependsOn'>): void {
     this.db.prepare(
-      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index, tags, timeout_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null, JSON.stringify(task.tags ?? []), task.timeoutMs ?? null);
+      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index, tags, timeout_ms, depends_on)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null, JSON.stringify(task.tags ?? []), task.timeoutMs ?? null, task.dependsOn ?? null);
   }
 
   listQueued(): TaskDescriptor[] {
@@ -214,6 +216,13 @@ export class TaskRepo {
       "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ? AND (pinned IS NULL OR pinned = 0)"
     ).run(cutoff);
     return result.changes;
+  }
+
+  getDependencyStatus(taskId: string): string | undefined {
+    const row = this.db.prepare('SELECT depends_on FROM tasks WHERE task_id = ?').get(taskId) as { depends_on: string | null } | undefined;
+    if (!row?.depends_on) return undefined;
+    const dep = this.db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(row.depends_on) as { status: string } | undefined;
+    return dep?.status;
   }
 
   countByStatus(): Record<string, number> {

@@ -78,9 +78,33 @@ export class TaskExecutor extends EventEmitter {
       stepIndex: request.stepIndex,
       tags,
       timeoutMs,
+      dependsOn: request.dependsOn,
     });
     this.auditRepo.log(taskId, 'task.created', { prompt: request.prompt, priority });
     this.emit('task:status', taskId, { status: 'pending' });
+
+    // Wait for dependency if specified
+    if (request.dependsOn) {
+      const depTask = this.taskRepo.getById(request.dependsOn);
+      if (!depTask) throw new Error(`Dependency task ${request.dependsOn} not found`);
+
+      if (depTask.status !== 'completed' && depTask.status !== 'failed' && depTask.status !== 'cancelled') {
+        this.auditRepo.log(taskId, 'task.queued', { reason: 'waiting for dependency', dependsOn: request.dependsOn });
+        await new Promise<void>((resolve, reject) => {
+          const check = () => {
+            const dep = this.taskRepo.getById(request.dependsOn!);
+            if (!dep) { reject(new Error('Dependency task disappeared')); return; }
+            if (dep.status === 'completed') { resolve(); return; }
+            if (dep.status === 'failed' || dep.status === 'cancelled') {
+              reject(new Error(`Dependency task ${request.dependsOn} ${dep.status}`));
+              return;
+            }
+            setTimeout(check, 1000);
+          };
+          check();
+        });
+      }
+    }
 
     // Route
     this.taskRepo.updateStatus(taskId, 'routing');
