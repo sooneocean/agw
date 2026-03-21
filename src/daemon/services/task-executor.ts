@@ -29,7 +29,7 @@ export class TaskExecutor extends EventEmitter {
     this.costRepo = costRepo ?? (db ? new CostRepo(db) : null);
     this.dailyCostLimit = dailyCostLimit;
     this.monthlyCostLimit = monthlyCostLimit;
-    this.taskQueue = new TaskQueue(taskRepo, maxConcurrencyPerAgent);
+    this.taskQueue = new TaskQueue(maxConcurrencyPerAgent);
 
     this.taskQueue.on('queued', (taskId: string) => {
       this.auditRepo.log(taskId, 'task.queued', { reason: 'concurrency limit' });

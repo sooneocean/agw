@@ -5,6 +5,7 @@
 
 import { createHmac } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { VERSION } from '../../version.js';
 
 export interface WebhookConfig {
   url: string;
@@ -119,7 +120,7 @@ export class WebhookManager {
     }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'AGW-Webhook/1.7',
+      'User-Agent': `AGW-Webhook/${VERSION}`,
       ...safeHeaders,
     };
 

@@ -1,13 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { createDatabase } from '../../src/store/db.js';
-import { TaskRepo } from '../../src/store/task-repo.js';
 import { TaskQueue } from '../../src/daemon/services/task-queue.js';
 
 describe('TaskQueue', () => {
   it('runs immediately when under concurrency limit', () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 2);
+    const queue = new TaskQueue(2);
     let executed = false;
     const started = queue.enqueue({
       taskId: 't1',
@@ -19,8 +15,7 @@ describe('TaskQueue', () => {
   });
 
   it('queues when at concurrency limit', async () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 1);
+    const queue = new TaskQueue(1);
 
     let resolve1!: () => void;
     const p1 = new Promise<void>(r => { resolve1 = r; });
@@ -48,8 +43,7 @@ describe('TaskQueue', () => {
   });
 
   it('respects priority ordering in queue', () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 1);
+    const queue = new TaskQueue(1);
 
     // Fill the slot
     queue.enqueue({
@@ -70,8 +64,7 @@ describe('TaskQueue', () => {
   });
 
   it('allows different agents to run concurrently', () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 1);
+    const queue = new TaskQueue(1);
 
     const s1 = queue.enqueue({
       taskId: 't1', agentId: 'claude', priority: 3,

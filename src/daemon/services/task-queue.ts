@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-import type { TaskRepo } from '../../store/task-repo.js';
 
 interface QueuedTask {
   taskId: string;
@@ -12,10 +11,7 @@ export class TaskQueue extends EventEmitter {
   private queue: QueuedTask[] = [];
   private runningCount: Map<string, number> = new Map();
 
-  constructor(
-    private taskRepo: TaskRepo,
-    private maxConcurrencyPerAgent: number,
-  ) {
+  constructor(private maxConcurrencyPerAgent: number) {
     super();
   }
 

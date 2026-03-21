@@ -58,7 +58,7 @@ export function registerHealthRoutes(
       circuitBreakers: cbRegistry.getAll().map(cb => cb.toJSON()),
       costs: costRepo ? { daily: costRepo.getDailyCost(), monthly: costRepo.getMonthlyCost() } : null,
       performance: perf,
-      memory: { heapMB: Math.round(mem.heapUsed / 1048576), rssMB: Math.round(mem.rss / 1048576) },
+      memory: { heapMB: Math.round(mem.heapUsed / 1_048_576), rssMB: Math.round(mem.rss / 1_048_576) },
       limits: {
         dailyCostLimit: config.dailyCostLimit,
         monthlyCostLimit: config.monthlyCostLimit,
@@ -66,7 +66,7 @@ export function registerHealthRoutes(
       },
       scheduler: scheduler ? { jobCount: scheduler.listJobs().length, enabledJobs: scheduler.listJobs().filter(j => j.enabled).length } : null,
       webhooks: webhookManager ? { count: webhookManager.getWebhooks().length } : null,
-      db: dbPath ? { sizeMB: Math.round((fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0) / 1048576 * 100) / 100 } : null,
+      db: dbPath ? { sizeMB: Math.round((fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0) / 1_048_576 * 100) / 100 } : null,
     };
   });
 }

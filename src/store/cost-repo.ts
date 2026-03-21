@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { CostSummary } from '../types.js';
+import { MS_PER_DAY } from '../constants.js';
 
 export class CostRepo {
   constructor(private db: Database.Database) {}
@@ -44,13 +45,13 @@ export class CostRepo {
 
   /** Delete cost records older than the given number of days. Returns count deleted. */
   purgeOlderThan(days: number): number {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
     const result = this.db.prepare('DELETE FROM cost_records WHERE recorded_at < ?').run(cutoff);
     return result.changes;
   }
 
   getBreakdown(days: number): { date: string; agent: string; cost: number; tokens: number; tasks: number }[] {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
     return this.db.prepare(
       `SELECT DATE(recorded_at) as date, agent_id as agent,
        COALESCE(SUM(cost), 0) as cost, COALESCE(SUM(tokens), 0) as tokens, COUNT(*) as tasks

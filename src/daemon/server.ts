@@ -126,7 +126,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerRateLimiter(app);
   registerTenantMiddleware(app, tenantManager);
 
-  registerAgentRoutes(app, agentManager, agentLearning, taskRepo, costRepo);
+  registerAgentRoutes(app, agentManager, agentLearning);
   registerTaskRoutes(app, executor, router, agentManager, config, agentLearning);
   registerWorkflowRoutes(app, workflowExecutor, config);
   registerCostRoutes(app, costRepo, config);

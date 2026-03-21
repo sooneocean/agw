@@ -1,6 +1,10 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
 
+interface DashMetrics { uptime: number; tasks: { total: number; completed: number; failed: number; running: number; pending: number }; performance: { avgDurationMs: number; p95DurationMs: number }; memory?: { heapMB: number } }
+interface DashAgent { id: string; name: string; available: boolean }
+interface DashCosts { daily: number; monthly: number; dailyLimit?: number; monthlyLimit?: number }
+
 export function registerDashboardCommand(program: Command): void {
   program
     .command('dashboard')
@@ -13,9 +17,9 @@ export function registerDashboardCommand(program: Command): void {
       const render = async () => {
         try {
           const [metrics, agents, costs] = await Promise.all([
-            client.get<any>('/metrics').catch(() => null),
-            client.get<any[]>('/agents').catch(() => []),
-            client.get<any>('/costs').catch(() => null),
+            client.get<DashMetrics>('/metrics').catch(() => null),
+            client.get<DashAgent[]>('/agents').catch(() => []),
+            client.get<DashCosts>('/costs').catch(() => null),
           ]);
 
           console.clear();

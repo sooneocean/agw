@@ -44,9 +44,6 @@ export interface CreateTaskRequest {
   dependsOn?: string;
 }
 
-// Priority: 1 = lowest, 5 = highest, 3 = default
-export type TaskPriority = 1 | 2 | 3 | 4 | 5;
-
 // Agent types
 export interface AgentDescriptor {
   id: string;

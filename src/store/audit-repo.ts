@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { AuditEventType, AuditEntry } from '../types.js';
+import { MS_PER_DAY } from '../constants.js';
 
 export class AuditRepo {
   constructor(private db: Database.Database) {}
@@ -25,7 +26,7 @@ export class AuditRepo {
 
   /** Delete audit entries older than the given number of days. Returns count of deleted rows. */
   purgeOlderThan(days: number): number {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
     const result = this.db.prepare('DELETE FROM audit_log WHERE created_at < ?').run(cutoff);
     return result.changes;
   }

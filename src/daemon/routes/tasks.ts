@@ -5,6 +5,9 @@ import type { AgentManager } from '../services/agent-manager.js';
 import type { AgentLearning } from '../services/agent-learning.js';
 import type { AppConfig, TaskStatus } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
+import { parsePagination } from '../middleware/pagination.js';
+
+const SSE_IDLE_TIMEOUT_MS = 300_000;
 
 export function registerTaskRoutes(
   app: FastifyInstance,
@@ -120,7 +123,7 @@ export function registerTaskRoutes(
       sendEvent('timeout', { reason: 'idle timeout' });
       cleanup();
       reply.raw.end();
-    }, 300_000);
+    }, SSE_IDLE_TIMEOUT_MS);
 
     const resetIdle = () => {
       clearTimeout(idleTimer);
@@ -128,7 +131,7 @@ export function registerTaskRoutes(
         sendEvent('timeout', { reason: 'idle timeout' });
         cleanup();
         reply.raw.end();
-      }, 300_000);
+      }, SSE_IDLE_TIMEOUT_MS);
     };
 
     const onStatus = (id: string, info: unknown) => {
@@ -290,8 +293,7 @@ export function registerTaskRoutes(
   );
 
   app.get<{ Querystring: { limit?: string; offset?: string; tag?: string } }>('/tasks', async (request) => {
-    const limit = Math.min(Math.max(parseInt(request.query.limit ?? '20', 10) || 20, 1), 200);
-    const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);
+    const { limit, offset } = parsePagination(request.query);
     if (request.query.tag) {
       return executor.listTasksByTag(request.query.tag, limit);
     }

@@ -1,15 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { AgentManager } from '../services/agent-manager.js';
 import type { AgentLearning } from '../services/agent-learning.js';
-import type { TaskRepo } from '../../store/task-repo.js';
-import type { CostRepo } from '../../store/cost-repo.js';
 
 export function registerAgentRoutes(
   app: FastifyInstance,
   agentManager: AgentManager,
   agentLearning?: AgentLearning,
-  taskRepo?: TaskRepo,
-  costRepo?: CostRepo | null,
 ): void {
   app.get('/agents', async () => {
     return agentManager.listAgents();
@@ -52,7 +48,6 @@ export function registerAgentRoutes(
     if (!agent) return reply.status(404).send({ error: 'Agent not found' });
 
     const scores = agentLearning?.getAgentScores(agentId) ?? [];
-    const taskCounts = taskRepo?.countByStatus() ?? {};
 
     return {
       agentId,

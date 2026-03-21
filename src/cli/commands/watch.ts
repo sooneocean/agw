@@ -17,7 +17,7 @@ export function registerWatchCommand(program: Command): void {
 
         if (!res.ok) {
           const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          console.error(`Error: ${(body as any).error}`);
+          console.error(`Error: ${(body as { error?: string }).error}`);
           process.exit(1);
         }
 

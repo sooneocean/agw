@@ -149,10 +149,12 @@ export class ComboExecutor extends EventEmitter {
       this.comboRepo.updateStatus(comboId, 'completed');
       this.auditRepo.log(null, 'combo.completed', { comboId });
       this.emit('combo:done', comboId);
+      this.cancelledCombos.delete(comboId);
     } catch (err) {
       this.comboRepo.updateStatus(comboId, 'failed');
       this.auditRepo.log(null, 'combo.failed', { comboId, error: (err as Error).message });
       this.emit('combo:done', comboId);
+      this.cancelledCombos.delete(comboId);
     }
   }
 

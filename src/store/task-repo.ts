@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { TaskDescriptor, TaskResult, TaskStatus } from '../types.js';
+import { MS_PER_DAY } from '../constants.js';
 
 interface TaskRow {
   task_id: string;
@@ -211,7 +212,7 @@ export class TaskRepo {
 
   /** Purge completed/failed/cancelled tasks older than N days */
   purgeOlderThan(days: number): number {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
     const result = this.db.prepare(
       "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ? AND (pinned IS NULL OR pinned = 0)"
     ).run(cutoff);

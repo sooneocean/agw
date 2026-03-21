@@ -2,7 +2,7 @@
  * Replay — re-run a completed/failed task or combo with the same parameters.
  */
 
-import type { TaskDescriptor, ComboDescriptor, CreateComboRequest, AppConfig } from '../../types.js';
+import type { TaskDescriptor, ComboDescriptor, CreateComboRequest } from '../../types.js';
 import type { TaskExecutor } from './task-executor.js';
 import type { ComboExecutor } from './combo-executor.js';
 import type { TaskRepo } from '../../store/task-repo.js';

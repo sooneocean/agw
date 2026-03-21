@@ -88,9 +88,13 @@ Return ONLY valid JSON: { "agentId": "...", "reason": "...", "confidence": 0.0-1
 
   private getDefaultCreateFn(): CreateMessageFn {
     // Lazy import to avoid requiring the SDK at test time
+    // Cache the client instance to avoid creating a new Anthropic client per call
+    let client: any;
     return async (params) => {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const client = new Anthropic({ apiKey: this.apiKey });
+      if (!client) {
+        const { default: Anthropic } = await import('@anthropic-ai/sdk');
+        client = new Anthropic({ apiKey: this.apiKey });
+      }
       const response = await client.messages.create(params as Parameters<typeof client.messages.create>[0]);
       return response as unknown as { content: Array<{ type: string; text: string }> };
     };

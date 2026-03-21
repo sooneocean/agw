@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ComboExecutor } from '../services/combo-executor.js';
 import type { AppConfig, CreateComboRequest } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
+import { parsePagination } from '../middleware/pagination.js';
 
 export function registerComboRoutes(
   app: FastifyInstance,
@@ -116,8 +117,7 @@ export function registerComboRoutes(
 
   // List combos
   app.get<{ Querystring: { limit?: string; offset?: string } }>('/combos', async (request) => {
-    const limit = Math.min(Math.max(parseInt(request.query.limit ?? '20', 10) || 20, 1), 200);
-    const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);
+    const { limit, offset } = parsePagination(request.query);
     return comboExecutor.listCombos(limit, offset);
   });
 }
