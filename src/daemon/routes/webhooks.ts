@@ -73,14 +73,24 @@ export function registerWebhookRoutes(app: FastifyInstance, webhookManager: Webh
     return webhookManager.getWebhooks();
   });
 
-  app.post<{ Body: WebhookConfig }>('/webhooks', async (request, reply) => {
+  app.post<{ Body: WebhookConfig }>('/webhooks', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['url', 'events'],
+        properties: {
+          url: { type: 'string', format: 'uri' },
+          events: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          secret: { type: 'string' },
+          headers: { type: 'object' },
+          retries: { type: 'integer', minimum: 0, maximum: 10 },
+          timeoutMs: { type: 'integer', minimum: 1000, maximum: 60000 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body;
-    if (!body || typeof body.url !== 'string' || !body.url) {
-      return reply.status(400).send({ error: 'url is required' });
-    }
-    if (!Array.isArray(body.events) || body.events.length === 0) {
-      return reply.status(400).send({ error: 'events array is required' });
-    }
     try {
       validateWebhookUrl(body.url);
     } catch (err) {

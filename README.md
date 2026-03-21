@@ -127,6 +127,7 @@ Environment variables (override config file):
 | POST | `/tasks/:id/unpin` | Unpin task |
 | GET | `/tasks/queue` | View execution queue |
 | GET | `/tasks/export` | Export tasks (JSON/CSV) |
+| GET | `/tasks/histogram` | Duration histogram |
 
 ### Combos
 
@@ -157,6 +158,7 @@ Environment variables (override config file):
 | POST | `/agents/:id/enable` | Enable agent |
 | POST | `/agents/:id/disable` | Disable agent |
 | GET | `/agents/detect` | Detect installed agents |
+| GET | `/agents/ranking` | Agent ranking by performance |
 
 ### Templates
 
@@ -165,6 +167,7 @@ Environment variables (override config file):
 | GET | `/templates` | List templates |
 | POST | `/templates` | Register custom template |
 | POST | `/templates/execute` | Instantiate and execute |
+| GET | `/templates/:id` | Get template by ID |
 | DELETE | `/templates/:id` | Delete template |
 
 ### Scheduler
@@ -174,6 +177,7 @@ Environment variables (override config file):
 | GET | `/scheduler/jobs` | List scheduled jobs |
 | POST | `/scheduler/jobs` | Create job |
 | DELETE | `/scheduler/jobs/:id` | Remove job |
+| GET | `/scheduler/jobs/:id` | Get job by ID |
 | POST | `/scheduler/jobs/:id/enable` | Enable job |
 | POST | `/scheduler/jobs/:id/disable` | Disable job |
 
@@ -194,11 +198,15 @@ Environment variables (override config file):
 | GET | `/snapshots` | List snapshots |
 | POST | `/snapshots/:id/restore` | Restore snapshot |
 | DELETE | `/snapshots/:id` | Delete snapshot |
+| GET | `/memory/:key` | Get memory entry |
+| DELETE | `/memory/:key` | Delete memory entry |
 | GET | `/capabilities` | Agent capabilities |
+| GET | `/capabilities/:agentId` | Get agent capabilities |
 | POST | `/capabilities/match` | Find best agent for task |
 | GET | `/health` | Health check |
 | GET | `/health/ready` | Readiness probe |
 | GET | `/metrics` | Detailed metrics |
+| GET | `/metrics/prometheus` | Prometheus format metrics |
 | GET | `/events` | SSE event stream |
 | GET | `/tasks/stats` | Task statistics |
 | GET | `/audit` | Audit log entries |
@@ -244,13 +252,16 @@ agw template list        List available templates
 agw template execute <id> Execute a template (--param key=value)
 agw combo watch <id>     Watch combo progress live
 agw version              Show version + check for updates
+agw info                Show system information summary
+agw queue               Show pending execution queue
+agw export              Export tasks (--format csv -o file.csv)
 agw daemon start|stop|status
 ```
 
 ## Development
 
 ```bash
-npm test          # Run 350+ tests
+npm test          # Run 360+ tests
 npm run build     # TypeScript compile
 npm run dev       # Start dev server
 ```

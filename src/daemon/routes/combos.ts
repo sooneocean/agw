@@ -59,6 +59,20 @@ export function registerComboRoutes(
   // Start a combo from a preset
   app.post<{ Params: { presetId: string }; Body: { input: string; workingDirectory?: string; priority?: number } }>(
     '/combos/preset/:presetId',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['input'],
+          properties: {
+            input: { type: 'string', minLength: 1, maxLength: 100000 },
+            workingDirectory: { type: 'string' },
+            priority: { type: 'integer', minimum: 1, maximum: 5 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
     async (request, reply) => {
       const preset = comboExecutor.getPresets().find(p => p.id === request.params.presetId);
       if (!preset) {
@@ -66,9 +80,6 @@ export function registerComboRoutes(
       }
 
       const { input, workingDirectory, priority } = request.body;
-      if (!input || typeof input !== 'string') {
-        return reply.status(400).send({ error: 'input is required' });
-      }
 
       let validatedDir = workingDirectory;
       if (validatedDir) {

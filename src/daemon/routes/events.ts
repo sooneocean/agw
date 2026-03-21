@@ -19,12 +19,14 @@ export function registerEventRoutes(
     });
 
     const send = (event: string, data: unknown) => {
-      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (!reply.raw.destroyed) {
+        reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      }
     };
 
     // Heartbeat every 30s to keep connection alive
     const heartbeat = setInterval(() => {
-      reply.raw.write(': heartbeat\n\n');
+      if (!reply.raw.destroyed) { reply.raw.write(': heartbeat\n\n'); }
     }, 30_000);
 
     const onTaskStatus = (taskId: string, info: unknown) => {
