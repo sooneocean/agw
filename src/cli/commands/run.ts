@@ -15,7 +15,8 @@ export function registerRunCommand(program: Command): void {
     .option('--tag <tags>', 'Comma-separated tags')
     .option('--after <taskId>', 'Run after specified task completes (dependency)')
     .option('--raw', 'Output only stdout (pipe-friendly, no decorations)')
-    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string; after?: string; raw?: boolean }) => {
+    .option('--stream', 'Stream output in real-time')
+    .action(async (promptParts: string[], options: { agent?: string; background?: boolean; cwd?: string; priority?: string; timeout?: string; tag?: string; after?: string; raw?: boolean; stream?: boolean }) => {
       const client = new HttpClient();
       let prompt = promptParts.join(' ');
 
@@ -37,6 +38,39 @@ export function registerRunCommand(program: Command): void {
           tags: options.tag ? options.tag.split(',').map(t => t.trim()) : undefined,
           dependsOn: options.after,
         });
+
+        if (options.stream && task.taskId && task.status === 'running') {
+          // Stream SSE output
+          const baseUrl = process.env.AGW_URL ?? 'http://127.0.0.1:4927';
+          const headers: Record<string, string> = {};
+          if (process.env.AGW_AUTH_TOKEN) headers.Authorization = `Bearer ${process.env.AGW_AUTH_TOKEN}`;
+
+          try {
+            const sseRes = await fetch(`${baseUrl}/tasks/${task.taskId}/stream`, { headers });
+            if (sseRes.ok && sseRes.body) {
+              const decoder = new TextDecoder();
+              const reader = sseRes.body.getReader();
+              let buffer = '';
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                  if (line.startsWith('data:')) {
+                    try {
+                      const data = JSON.parse(line.slice(5));
+                      if (data.chunk) process.stdout.write(data.chunk);
+                    } catch {}
+                  }
+                }
+              }
+            }
+          } catch {}
+          return;
+        }
 
         if (options.raw) {
           // Pipe-friendly: stdout only, no decorations

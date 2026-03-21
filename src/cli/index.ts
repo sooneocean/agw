@@ -24,6 +24,8 @@ import { registerHistogramCommand } from './commands/histogram.js';
 import { registerRankingCommand } from './commands/ranking.js';
 import { registerGrepCommand } from './commands/grep.js';
 import { registerMcpCommand } from './commands/mcp.js';
+import { registerDoctorCommand } from './commands/doctor.js';
+import { registerCompletionsCommand } from './commands/completions.js';
 import { VERSION } from '../version.js';
 
 export function createCli(): Command {
@@ -58,6 +60,8 @@ export function createCli(): Command {
   registerRankingCommand(program);
   registerGrepCommand(program);
   registerMcpCommand(program);
+  registerDoctorCommand(program);
+  registerCompletionsCommand(program);
 
   return program;
 }
