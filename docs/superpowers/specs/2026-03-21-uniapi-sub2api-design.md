@@ -45,17 +45,30 @@ internal/provider/
 ```go
 // internal/provider/sub2api/sub2api.go
 type Sub2APIProvider struct {
+    name      string
     client    *http.Client
     baseURL   string
-    credFunc  func() string  // 動態取得 session token
+    credFunc  func() (string, string)  // 匹配現有 codebase: (credential, authType)
+    models    []string
     modelMap  map[string]string
     authStyle string         // "bearer" | "cookie"
     authKey   string         // cookie name or header name
 }
 
+// 實作 Provider interface 的全部 4 個方法：
+func (p *Sub2APIProvider) Name() string
+func (p *Sub2APIProvider) Models() []string
+func (p *Sub2APIProvider) ChatCompletion(req *types.ChatRequest) (*types.ChatResponse, error)
+func (p *Sub2APIProvider) ChatCompletionStream(req *types.ChatRequest) (<-chan *types.StreamChunk, error)
+func (p *Sub2APIProvider) ValidateCredential() error  // 發一個簡單 request 驗證 token 有效
+func (p *Sub2APIProvider) GetUsage() (*types.Usage, error)  // web API 無 usage endpoint → return nil, nil
+
+// 內部 helper
 func (p *Sub2APIProvider) doRequest(method, path string, body any) (*http.Response, error)
 func (p *Sub2APIProvider) doStreamRequest(method, path string, body any) (io.ReadCloser, error)
 ```
+
+**credFunc 簽名：** `func() (string, string)` 匹配現有 codebase（所有 provider adapter 都用這個簽名，回傳 credential + authType）。
 
 ## 5. Web API Endpoints
 
@@ -96,7 +109,13 @@ ChatGPT SSE chunks → OpenAI-compatible stream chunks
 
 ### Gemini web API
 
-用 protobuf-like JSON，需較多轉換。
+Gemini web API 用 protobuf-wrapped JSON。Request/response 格式需要在實作時逆向工程確認（web API 未公開文檔，格式可能變動）。初始實作策略：
+
+1. 先用 browser DevTools 抓取實際 request/response 格式
+2. 實作基礎轉換
+3. 如果格式過於複雜或不穩定，降級為 `ValidateCredential` 回傳 error，暫不支援 chat
+
+**注意：所有 web API endpoint 都是逆向工程的非官方 API，可能隨時變動。每個 adapter 應有 graceful error handling。**
 
 ### 轉換函數
 
@@ -114,20 +133,37 @@ func geminiWebStreamToOpenAI(chunk []byte) *types.StreamChunk
 
 ## 7. Provider 註冊
 
-在 `cmd/uniapi/main.go` 的 account loading 中：
+**透過 `handler.CreateProvider()` / `provider_factory.go`**（不是直接在 main.go 加 switch）：
+
+修改 `internal/handler/provider_factory.go` 的 `CreateProvider()` 函數，新增 `authType` 參數判斷：
 
 ```go
-switch {
-case account.AuthType == "session_token" && account.OAuthProvider == "openai":
-    provider = sub2api.NewChatGPT(credFunc)
-case account.AuthType == "session_token" && account.OAuthProvider == "anthropic":
-    provider = sub2api.NewClaudeWeb(credFunc)
-case account.AuthType == "session_token" && account.OAuthProvider == "gemini":
-    provider = sub2api.NewGeminiWeb(credFunc)
-default:
-    // 現有 official API adapter
+// provider_factory.go
+func CreateProvider(providerName string, cfg ProviderConfig, models []string, credFunc func() (string, string)) provider.Provider {
+    // 檢查 credFunc 回傳的 authType
+    _, authType := credFunc()
+
+    if authType == "session_token" {
+        switch providerName {
+        case "openai":
+            return sub2api.NewChatGPT(models, credFunc)
+        case "anthropic":
+            return sub2api.NewClaudeWeb(models, credFunc)
+        case "gemini":
+            return sub2api.NewGeminiWeb(models, credFunc)
+        }
+    }
+
+    // 現有 official API adapter 邏輯
+    switch providerName {
+    case "openai":
+        return openai.New(cfg, models, credFunc)
+    // ...
+    }
 }
 ```
+
+**main.go 不改** — `CreateProvider` 已在 main.go 被呼叫，factory 內部自動判斷。
 
 模型名映射（使用者輸入 = web API 呼叫）：
 - `gpt-4o` → ChatGPT web `gpt-4o`
@@ -144,7 +180,7 @@ default:
 | 4 | `internal/provider/sub2api/gemini_web.go` | Create |
 | 5 | `internal/provider/sub2api/convert.go` | Create |
 | 6 | `internal/provider/sub2api/sub2api_test.go` | Create |
-| 7 | `cmd/uniapi/main.go` | Modify |
+| 7 | `internal/handler/provider_factory.go` | Modify — 加 session_token 判斷 |
 
 ## 9. 不做的事
 
@@ -154,6 +190,14 @@ default:
 - 不做 conversation 管理（每次 request 獨立）
 - 不做 web API rate limiting（由上游處理）
 - 不做 token 自動刷新（session token 需使用者手動更新）
+
+## 11. 錯誤處理策略
+
+Web API 常見錯誤及處理：
+- **403 / token expired** → 回傳 `401 Unauthorized`，前端提示使用者重新綁定 token
+- **Cloudflare challenge** → 回傳 `503 Service Unavailable` + 訊息 "Web API blocked by Cloudflare"
+- **Rate limited** → 回傳 `429 Too Many Requests`，透傳上游的 retry-after header
+- **Unknown format** → 回傳 `502 Bad Gateway` + log 原始 response，方便 debug 格式變動
 
 ## 10. 成功指標
 
