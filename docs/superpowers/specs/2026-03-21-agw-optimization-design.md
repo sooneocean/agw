@@ -17,7 +17,7 @@ AGW 探索分析發現以下優化機會：
 
 **中優先（可用性）：**
 - Auto-scaler 存在但未整合到 TaskQueue
-- ~100 個 console.log 散落 src/，無結構化 logging
+- daemon 層無結構化 logging（CLI 層 console.log 屬有意輸出，不動）
 
 ## 2. 設計決策
 
@@ -25,7 +25,7 @@ AGW 探索分析發現以下優化機會：
 |--------|------|------|
 | 優化範圍 | 中度（正確性 + auto-scaler + logging） | 全面翻修太大，只修 bug 不夠 |
 | Review-loop 判定 | 結構化 JSON + fallback 字串匹配 | 最可靠，零額外 API 成本 |
-| Logging 方案 | pino（Fastify 原生整合） | 效能最好，零配置整合 |
+| Logging 方案 | pino（Fastify 原生整合，僅 daemon 層） | 效能最好，CLI 層保留 console.log |
 | Map-reduce 容錯 | Retry 1 次 + partial success | 自動化，使用者不需配置 |
 
 ## 3. 優化項 1：Review-Loop 結構化判定
@@ -77,7 +77,8 @@ Reply with JSON: {"verdict": "APPROVED" or "REJECTED", "feedback": "your review 
 
 ### 影響範圍
 
-僅 `combo-executor.ts` 的 `executeReviewLoop()`。
+- `combo-executor.ts` 的 `executeReviewLoop()` — 使用 `parseReviewOutput()`
+- `combo-executor.ts` 的 `COMBO_PRESETS` — 更新 `code-review-loop` preset 的 reviewer prompt，移除舊的 `respond with exactly "APPROVED"` 指令，改為 JSON 格式指令
 
 ## 4. 優化項 2：Map-Reduce Retry + Partial Success
 
@@ -119,6 +120,24 @@ interface MapStepResult {
 - 全部 map steps 都失敗：combo 標記 failed
 - `{{all}}` 模板變數包含失敗標記
 
+### Map Phase 實作
+
+使用 `Promise.allSettled`（非 `Promise.all`）讓每個 step 獨立完成/失敗，不互相阻塞：
+
+```ts
+const settled = await Promise.allSettled(mapPromises);
+const results: MapStepResult[] = settled.map((s, i) => {
+  if (s.status === 'fulfilled') return { step: i, agentId, output: s.value };
+  // retry once
+  try {
+    const retryResult = await retryStep(i);
+    return { step: i, agentId, output: retryResult, retried: true };
+  } catch (err) {
+    return { step: i, agentId, error: true, message: err.message, retried: true };
+  }
+});
+```
+
 ### 影響範圍
 
 僅 `combo-executor.ts` 的 `executeMapReduce()`。
@@ -134,9 +153,22 @@ interface MapStepResult {
 SQLite `BEGIN IMMEDIATE` 確保寫鎖：
 
 ```ts
-function reserveQuota(taskId: string, agentId: string, estimatedCost: number): boolean {
+// Per-agent estimated cost defaults (configurable in config)
+const AGENT_COST_ESTIMATES: Record<string, number> = {
+  claude: 0.05,   // ~$0.05 per task (Haiku routing + Claude execution)
+  codex: 0.02,    // lighter workloads
+  gemini: 0.03,   // mid-range
+};
+
+function getEstimatedCost(agentId: string): number {
+  return AGENT_COST_ESTIMATES[agentId] ?? 0.03; // default fallback
+}
+
+function reserveQuota(taskId: string, agentId: string): boolean {
+  const estimatedCost = getEstimatedCost(agentId);
   db.exec('BEGIN IMMEDIATE');
   try {
+    // Check daily limit
     const dailyUsed = db.prepare(
       `SELECT COALESCE(SUM(cost), 0) as total
        FROM cost_records
@@ -144,6 +176,18 @@ function reserveQuota(taskId: string, agentId: string, estimatedCost: number): b
     ).get().total;
 
     if (dailyUsed + estimatedCost > dailyCostLimit) {
+      db.exec('ROLLBACK');
+      return false;
+    }
+
+    // Check monthly limit
+    const monthlyUsed = db.prepare(
+      `SELECT COALESCE(SUM(cost), 0) as total
+       FROM cost_records
+       WHERE recorded_at >= date('now', 'start of month')`
+    ).get().total;
+
+    if (monthlyUsed + estimatedCost > monthlyCostLimit) {
       db.exec('ROLLBACK');
       return false;
     }
@@ -169,7 +213,18 @@ function finalizeQuota(taskId: string, actualCost: number): void {
 
 ### DB Migration
 
-`cost_records` 新增 `status TEXT DEFAULT 'recorded'` 欄位。
+在 `db.ts` 的 schema 初始化後執行：
+
+```ts
+// Migration: add status column to cost_records
+db.exec(`
+  ALTER TABLE cost_records ADD COLUMN status TEXT DEFAULT 'recorded'
+`);
+```
+
+使用 `try-catch` 包裝（`ALTER TABLE` 如果欄位已存在會報錯，靜默忽略）。
+
+未來如需更多 migration，引入 `schema_version` table。目前單次 migration 不需要。
 
 ### 影響範圍
 
@@ -183,34 +238,41 @@ function finalizeQuota(taskId: string, actualCost: number): void {
 
 ### 改為
 
+使用 AutoScaler 現有的 `evaluate(agentId, queueDepth, errorRate)` API：
+
 ```
-TaskQueue
-  ├─ onTaskComplete(agentId, duration)
-  │    → autoScaler.recordCompletion(agentId, duration)
-  │    → newLimit = autoScaler.recommend(agentId)
-  │    → taskQueue.updateConcurrency(agentId, newLimit)
-  └─ onTaskTimeout(agentId)
-       → autoScaler.recordFailure(agentId)
-       → newLimit = autoScaler.recommend(agentId)
-       → taskQueue.updateConcurrency(agentId, newLimit)
+TaskExecutor.onTaskComplete(agentId):
+  queueDepth = taskQueue.getQueueDepth(agentId)
+  errorRate = taskQueue.getErrorRate(agentId)
+  decision = autoScaler.evaluate(agentId, queueDepth, errorRate)
+  if decision.action !== 'hold':
+    taskQueue.updateConcurrency(agentId, decision.newConcurrency)
+
+TaskExecutor.onTaskFail(agentId):
+  // same flow, errorRate will be higher → may trigger scale-down
 ```
 
 ### 實作細節
 
-- `TaskQueue` 新增 `updateConcurrency(agentId, limit)` 方法
-- `TaskExecutor` 在 task 完成/失敗時呼叫 auto-scaler
-- 初始值 3，auto-scaler 動態調整（上限 10、下限 1）
+- **TaskQueue 重構**：`maxConcurrencyPerAgent: number` → `concurrencyMap: Map<string, number>`
+  - `canRun(agentId)` 改為查 `concurrencyMap.get(agentId) ?? defaultConcurrency`
+  - 新增 `updateConcurrency(agentId, limit)` 方法
+  - 新增 `getQueueDepth(agentId)` 方法
+  - 新增 `getErrorRate(agentId)` 方法（基於最近 N 次結果的滑動窗口）
+- **TaskExecutor** 在 task 完成/失敗時呼叫 `autoScaler.evaluate()`
+- **初始化**：TaskQueue 預設 per-agent concurrency = 3，AutoScaler 的 `getConcurrency()` 初次返回 `minConcurrency: 1`，但因 TaskQueue 自帶初始值，以 TaskQueue 為準直到 AutoScaler 首次 evaluate 覆寫
 - Auto-scaler 內部邏輯不改
 
 ### 影響範圍
 
 `task-queue.ts`、`task-executor.ts`、`server.ts`（注入依賴）。
 
-## 7. 優化項 5：Pino 結構化 Logging
+## 7. 優化項 5：Pino 結構化 Logging（僅 Daemon 層）
 
 ### 現狀
 
-~100 個 `console.log` 散落 src/ 各處。
+`src/cli/commands/` 中有 ~81 個 `console.log`，但這些是**有意的 CLI 使用者輸出**（列印 task 狀態、cost 摘要等），不應替換。
+`src/daemon/` 中目前沒有 `console.log`，但本次優化新增的邏輯（retry、quota reservation、auto-scaling）需要結構化 logging。
 
 ### 改為
 
@@ -233,12 +295,10 @@ Fastify 整合：
 const app = fastify({ logger });
 ```
 
-各模組替換：
-```ts
-import { createLogger } from '../logger.js';
-const log = createLogger('combo-executor');
-log.info({ comboId }, 'combo started');
-```
+**使用範圍：**
+- `src/daemon/` 層：server.ts、combo-executor.ts、task-executor.ts 等 daemon services
+- 新增的優化邏輯（retry、quota、auto-scaling）使用 pino
+- `src/cli/commands/` 的 `console.log` **保持不動**（CLI 輸出用途正確）
 
 ### 新增依賴
 
@@ -247,7 +307,7 @@ log.info({ comboId }, 'combo started');
 
 ### 影響範圍
 
-新建 `src/logger.ts`，修改所有含 `console.log` 的 src/ 文件。
+新建 `src/logger.ts`，修改 `src/daemon/server.ts` + 本次優化涉及的 daemon service 文件。不動 CLI 層。
 
 ## 8. 實作順序
 
@@ -263,8 +323,8 @@ log.info({ comboId }, 'combo started');
 2. Review-loop 能正確解析 JSON verdict，fallback 到字串匹配
 3. Map-reduce 單 step 失敗後重試，仍失敗走 partial success
 4. 並發提交 10 tasks 不超額
-5. `console.log` 在 src/ 中歸零
-6. Pino JSON log 正常輸出
+5. `src/daemon/` 層使用 pino 結構化 log（`src/cli/` 的 console.log 保持不動）
+6. Fastify request logging 自動輸出 JSON
 
 ## 10. 不做的事
 
