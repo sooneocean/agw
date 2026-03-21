@@ -37,6 +37,18 @@ export class HttpClient {
     return res.json() as Promise<T>;
   }
 
+  async delete(path: string): Promise<{ status: number }> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: 'DELETE',
+      headers: this.headers(),
+    });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+    }
+    return { status: res.status };
+  }
+
   async stream(path: string, onEvent: (event: string, data: string) => void): Promise<void> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: this.headers({ Accept: 'text/event-stream' }),

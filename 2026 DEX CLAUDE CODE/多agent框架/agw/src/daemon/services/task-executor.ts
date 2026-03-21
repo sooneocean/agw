@@ -7,6 +7,9 @@ import { AuditRepo } from '../../store/audit-repo.js';
 import { CostRepo } from '../../store/cost-repo.js';
 import { AgentManager } from './agent-manager.js';
 import { TaskQueue } from './task-queue.js';
+import type { AutoScaler } from './auto-scaler.js';
+import { createLogger } from '../../logger.js';
+const log = createLogger('task-executor');
 
 export class TaskExecutor extends EventEmitter {
   private taskQueue: TaskQueue;
@@ -23,6 +26,8 @@ export class TaskExecutor extends EventEmitter {
     dailyCostLimit?: number,
     monthlyCostLimit?: number,
     db?: Database.Database,
+    private autoScaler?: AutoScaler,
+    private onTaskComplete?: (prompt: string, agentId: string, success: boolean) => void,
   ) {
     super();
     this.costRepo = costRepo ?? (db ? new CostRepo(db) : null) as CostRepo;
@@ -35,31 +40,25 @@ export class TaskExecutor extends EventEmitter {
     });
   }
 
-  private checkQuota(): void {
-    if (!this.costRepo) return;
-    if (this.dailyCostLimit) {
-      const daily = this.costRepo.getDailyCost();
-      if (daily >= this.dailyCostLimit) {
-        this.auditRepo.log(null, 'cost.quota_exceeded', { type: 'daily', current: daily, limit: this.dailyCostLimit });
-        throw new Error(`Daily cost limit exceeded ($${daily.toFixed(2)} / $${this.dailyCostLimit.toFixed(2)})`);
-      }
-    }
-    if (this.monthlyCostLimit) {
-      const monthly = this.costRepo.getMonthlyCost();
-      if (monthly >= this.monthlyCostLimit) {
-        this.auditRepo.log(null, 'cost.quota_exceeded', { type: 'monthly', current: monthly, limit: this.monthlyCostLimit });
-        throw new Error(`Monthly cost limit exceeded ($${monthly.toFixed(2)} / $${this.monthlyCostLimit.toFixed(2)})`);
-      }
-    }
-  }
-
   async execute(request: CreateTaskRequest, routeFn?: (prompt: string) => Promise<{ agentId: string; reason: string; confidence: number }>): Promise<TaskDescriptor> {
-    this.checkQuota();
-
     const taskId = nanoid(12);
     const workingDirectory = request.workingDirectory ?? process.cwd();
     const createdAt = new Date().toISOString();
     const priority = request.priority ?? 3;
+
+    // Reserve quota atomically (replaces old checkQuota)
+    if (this.costRepo && (this.dailyCostLimit || this.monthlyCostLimit)) {
+      const reserved = this.costRepo.reserveQuota(
+        taskId,
+        request.preferredAgent ?? 'claude',
+        this.dailyCostLimit ?? Infinity,
+        this.monthlyCostLimit ?? Infinity,
+      );
+      if (!reserved) {
+        this.auditRepo.log(taskId, 'cost.quota_exceeded', { type: 'reservation' });
+        throw new Error('Cost quota exceeded (reservation failed)');
+      }
+    }
 
     // Create task
     this.taskRepo.create({
@@ -114,6 +113,14 @@ export class TaskExecutor extends EventEmitter {
       const onStderr = (...args: unknown[]) => this.emit('task:stderr', taskId, String(args[0]));
       adapter.on('stdout', onStdout);
       adapter.on('stderr', onStderr);
+      const onTruncated = (...args: unknown[]) => {
+        const stream = args[0] as string;
+        const bytes = args[1] as number;
+        log.warn({ taskId, stream, bytes }, 'output truncated');
+        this.auditRepo.log(taskId, 'task.truncated', { stream, bytes });
+        this.emit('task:truncated', taskId, stream, bytes);
+      };
+      adapter.on('truncated', onTruncated);
 
       const task: TaskDescriptor = {
         taskId,
@@ -123,6 +130,7 @@ export class TaskExecutor extends EventEmitter {
         priority,
         assignedAgent: agentId,
         createdAt,
+        timeoutMs: request.timeoutMs,
       };
 
       try {
@@ -133,14 +141,33 @@ export class TaskExecutor extends EventEmitter {
         const eventType = result.exitCode === 0 ? 'task.completed' : 'task.failed';
         this.auditRepo.log(taskId, eventType, { exitCode: result.exitCode, durationMs: result.durationMs });
 
-        if (result.costEstimate && this.costRepo) {
-          this.costRepo.record(taskId, agentId, result.costEstimate, result.tokenEstimate ?? 0);
+        if (this.costRepo) {
+          if (result.costEstimate) {
+            this.costRepo.finalizeQuota(taskId, result.costEstimate, result.tokenEstimate ?? 0);
+          } else {
+            this.costRepo.finalizeQuota(taskId, 0);
+          }
         }
 
         this.emit('task:done', taskId, result);
+        if (this.onTaskComplete) {
+          this.onTaskComplete(request.prompt, agentId, result.exitCode === 0);
+        }
+
+        // Auto-scale after task completion
+        if (this.autoScaler) {
+          const agentQueueDepth = this.taskQueue.getQueueDepth(agentId);
+          const errorRate = this.taskQueue.getErrorRate(agentId);
+          const decision = this.autoScaler.evaluate(agentId, agentQueueDepth, errorRate);
+          if (decision.action !== 'hold') {
+            this.taskQueue.updateConcurrency(agentId, decision.newConcurrency);
+            log.info({ agentId, action: decision.action, newConcurrency: decision.newConcurrency, reason: decision.reason }, 'auto-scaled');
+          }
+        }
       } finally {
         adapter.removeListener('stdout', onStdout);
         adapter.removeListener('stderr', onStderr);
+        adapter.removeListener('truncated', onTruncated);
       }
     };
 
@@ -151,6 +178,7 @@ export class TaskExecutor extends EventEmitter {
           await executeTask();
           resolve(this.taskRepo.getById(taskId)!);
         } catch (err) {
+          this.taskQueue.recordError(agentId);
           this.taskRepo.updateStatus(taskId, 'failed');
           this.auditRepo.log(taskId, 'task.failed', { error: (err as Error).message });
           resolve(this.taskRepo.getById(taskId)!);
@@ -168,6 +196,18 @@ export class TaskExecutor extends EventEmitter {
         this.emit('task:status', taskId, { status: 'queued' });
       }
     });
+  }
+
+  cancel(taskId: string): boolean {
+    const task = this.taskRepo.getById(taskId);
+    if (!task || task.status !== 'running') return false;
+    const adapter = this.agentManager.getAdapter(task.assignedAgent!);
+    if (!adapter?.cancel?.(taskId)) return false;
+    this.taskRepo.updateStatus(taskId, 'cancelled');
+    this.auditRepo.log(taskId, 'task.cancelled', {});
+    log.info({ taskId }, 'task cancelled');
+    this.emit('task:done', taskId, { exitCode: -1, cancelled: true });
+    return true;
   }
 
   getTask(taskId: string): TaskDescriptor | undefined {

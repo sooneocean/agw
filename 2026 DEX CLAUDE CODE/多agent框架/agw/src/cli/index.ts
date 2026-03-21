@@ -7,6 +7,7 @@ import { registerDaemonCommand } from './commands/daemon.js';
 import { registerCostsCommand } from './commands/costs.js';
 import { registerWorkflowCommand } from './commands/workflow.js';
 import { registerComboCommand } from './commands/combo.js';
+import { registerCancelCommand } from './commands/cancel.js';
 
 export function createCli(): Command {
   const program = new Command();
@@ -23,6 +24,7 @@ export function createCli(): Command {
   registerCostsCommand(program);
   registerWorkflowCommand(program);
   registerComboCommand(program);
+  registerCancelCommand(program);
 
   return program;
 }

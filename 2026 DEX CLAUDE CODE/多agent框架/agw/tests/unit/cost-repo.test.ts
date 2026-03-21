@@ -41,3 +41,42 @@ describe('CostRepo', () => {
     expect(summary.monthlyLimit).toBe(10.00);
   });
 });
+
+describe('CostRepo quota reservation', () => {
+  let db: Database.Database;
+  let costRepo: CostRepo;
+
+  beforeEach(() => {
+    db = createDatabase(':memory:');
+    costRepo = new CostRepo(db);
+  });
+
+  it('reserveQuota inserts a reserved record and returns true', () => {
+    const result = costRepo.reserveQuota('task-1', 'claude', 5.0, 10.0);
+    expect(result).toBe(true);
+    const row = db.prepare("SELECT * FROM cost_records WHERE task_id = 'task-1' AND status = 'reserved'").get();
+    expect(row).toBeDefined();
+  });
+
+  it('reserveQuota rejects when daily limit exceeded', () => {
+    // claude estimate = 0.05, so 9.96 + 0.05 = 10.01 > 10.0
+    costRepo.record('existing-task', 'claude', 9.96, 100);
+    const result = costRepo.reserveQuota('task-2', 'claude', 10.0, 1000.0);
+    expect(result).toBe(false);
+  });
+
+  it('reserveQuota rejects when monthly limit exceeded', () => {
+    // claude estimate = 0.05, so 99.96 + 0.05 = 100.01 > 100.0
+    costRepo.record('existing-task', 'claude', 99.96, 1000);
+    const result = costRepo.reserveQuota('task-3', 'claude', 1000.0, 100.0);
+    expect(result).toBe(false);
+  });
+
+  it('finalizeQuota updates reserved record with actual cost', () => {
+    costRepo.reserveQuota('task-4', 'claude', 5.0, 10.0);
+    costRepo.finalizeQuota('task-4', 0.03);
+    const row = db.prepare("SELECT * FROM cost_records WHERE task_id = 'task-4'").get() as any;
+    expect(row.cost).toBe(0.03);
+    expect(row.status).toBe('recorded');
+  });
+});

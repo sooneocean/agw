@@ -86,3 +86,31 @@ describe('TaskQueue', () => {
     expect(s2).toBe(true); // different agent, should start
   });
 });
+
+describe('TaskQueue per-agent concurrency', () => {
+  const db = createDatabase(':memory:');
+  const queue = new TaskQueue(new TaskRepo(db), 2);
+
+  it('updateConcurrency changes limit for specific agent', () => {
+    queue.updateConcurrency('claude', 5);
+    expect(queue.getConcurrencyLimit('claude')).toBe(5);
+  });
+
+  it('getConcurrencyLimit returns default for unknown agent', () => {
+    expect(queue.getConcurrencyLimit('unknown-agent')).toBe(2); // default from test setup
+  });
+
+  it('getQueueDepth returns 0 for empty queue', () => {
+    expect(queue.getQueueDepth('claude')).toBe(0);
+  });
+
+  it('getErrorRate returns 0 with no errors', () => {
+    expect(queue.getErrorRate('claude')).toBe(0);
+  });
+
+  it('recordError increases error rate', () => {
+    queue.recordError('claude');
+    const rate = queue.getErrorRate('claude');
+    expect(rate).toBeGreaterThan(0);
+  });
+});
