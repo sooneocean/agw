@@ -15,6 +15,11 @@ export function registerAgentRoutes(
     return agentManager.listAgents();
   });
 
+  // Agent ranking by performance
+  app.get('/agents/ranking', async () => {
+    return agentLearning?.getRanking() ?? [];
+  });
+
   // Detect installed agent CLIs (must be before :id routes)
   app.get('/agents/detect', async () => {
     return AgentManager.detectInstalledAgents();

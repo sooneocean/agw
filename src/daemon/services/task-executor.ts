@@ -267,6 +267,10 @@ export class TaskExecutor extends EventEmitter {
     };
   }
 
+  getDurationHistogram() {
+    return this.taskRepo.getDurationHistogram();
+  }
+
   getTaskStats() {
     return this.taskRepo.getStats();
   }

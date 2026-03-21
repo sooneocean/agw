@@ -267,6 +267,11 @@ export function registerTaskRoutes(
     return tasks;
   });
 
+  // Task duration histogram
+  app.get('/tasks/histogram', async () => {
+    return executor.getDurationHistogram();
+  });
+
   // Task statistics
   app.get('/tasks/stats', async () => {
     return executor.getTaskStats();

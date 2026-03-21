@@ -225,6 +225,26 @@ export class TaskRepo {
     return dep?.status;
   }
 
+  getDurationHistogram(): { bucket: string; count: number }[] {
+    const buckets = [
+      { bucket: '<1s', min: 0, max: 1000 },
+      { bucket: '1-5s', min: 1000, max: 5000 },
+      { bucket: '5-10s', min: 5000, max: 10000 },
+      { bucket: '10-30s', min: 10000, max: 30000 },
+      { bucket: '30-60s', min: 30000, max: 60000 },
+      { bucket: '>60s', min: 60000, max: Infinity },
+    ];
+
+    return buckets.map(({ bucket, min, max }) => {
+      const row = this.db.prepare(
+        max === Infinity
+          ? 'SELECT COUNT(*) as cnt FROM tasks WHERE duration_ms IS NOT NULL AND duration_ms >= ?'
+          : 'SELECT COUNT(*) as cnt FROM tasks WHERE duration_ms IS NOT NULL AND duration_ms >= ? AND duration_ms < ?'
+      ).get(...(max === Infinity ? [min] : [min, max])) as { cnt: number };
+      return { bucket, count: row.cnt };
+    });
+  }
+
   countByStatus(): Record<string, number> {
     const rows = this.db.prepare(
       'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'

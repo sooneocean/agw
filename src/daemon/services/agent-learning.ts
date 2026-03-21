@@ -110,6 +110,39 @@ export class AgentLearning {
     return Array.from(this.scores.values());
   }
 
+  getRanking(): { agentId: string; successRate: number; totalTasks: number; avgDurationMs: number; totalCost: number; score: number }[] {
+    // Aggregate across all categories per agent
+    const agents = new Map<string, { success: number; fail: number; totalDuration: number; totalCost: number; totalScore: number; categories: number }>();
+
+    for (const s of this.scores.values()) {
+      let agg = agents.get(s.agentId);
+      if (!agg) {
+        agg = { success: 0, fail: 0, totalDuration: 0, totalCost: 0, totalScore: 0, categories: 0 };
+        agents.set(s.agentId, agg);
+      }
+      agg.success += s.successCount;
+      agg.fail += s.failCount;
+      agg.totalDuration += s.avgDurationMs * (s.successCount + s.failCount);
+      agg.totalCost += s.totalCost;
+      agg.totalScore += s.score;
+      agg.categories++;
+    }
+
+    return [...agents.entries()]
+      .map(([agentId, a]) => {
+        const total = a.success + a.fail;
+        return {
+          agentId,
+          successRate: total > 0 ? Math.round(a.success / total * 100) : 0,
+          totalTasks: total,
+          avgDurationMs: total > 0 ? Math.round(a.totalDuration / total) : 0,
+          totalCost: Math.round(a.totalCost * 1000) / 1000,
+          score: Math.round((a.totalScore / Math.max(1, a.categories)) * 1000) / 1000,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+  }
+
   static categorize(prompt: string): string {
     const lower = prompt.toLowerCase();
     if (/refactor|restructure|reorganize/.test(lower)) return 'refactoring';
