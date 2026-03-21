@@ -11,13 +11,14 @@ import { registerDashboardCommand } from './commands/dashboard.js';
 import { registerCancelCommand } from './commands/cancel.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerStatsCommand } from './commands/stats.js';
+import { registerEventsCommand } from './commands/events.js';
 
 export function createCli(): Command {
   const program = new Command();
   program
     .name('agw')
     .description('Agent Gateway — route tasks to the best AI agent')
-    .version('2.3.0');
+    .version('2.4.0');
 
   registerRunCommand(program);
   registerStatusCommand(program);
@@ -31,6 +32,7 @@ export function createCli(): Command {
   registerCancelCommand(program);
   registerSearchCommand(program);
   registerStatsCommand(program);
+  registerEventsCommand(program);
 
   return program;
 }

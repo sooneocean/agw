@@ -197,6 +197,15 @@ export class TaskRepo {
     this.db.prepare('UPDATE tasks SET priority = ? WHERE task_id = ?').run(priority, taskId);
   }
 
+  /** Purge completed/failed/cancelled tasks older than N days */
+  purgeOlderThan(days: number): number {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const result = this.db.prepare(
+      "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ?"
+    ).run(cutoff);
+    return result.changes;
+  }
+
   countByStatus(): Record<string, number> {
     const rows = this.db.prepare(
       'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'

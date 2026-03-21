@@ -41,6 +41,7 @@ import { AgentLearning } from './services/agent-learning.js';
 import { registerCapabilityRoutes } from './routes/capabilities.js';
 import { registerBatchRoutes } from './routes/batch.js';
 import { registerSnapshotRoutes } from './routes/snapshots.js';
+import { registerEventRoutes } from './routes/events.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -111,6 +112,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerCapabilityRoutes(app, capDiscovery);
   registerBatchRoutes(app, executor, router, agentManager);
   registerSnapshotRoutes(app, snapshotManager);
+  registerEventRoutes(app, executor, comboExecutor);
 
   app.register(import('./routes/ui.js'));
 
@@ -167,13 +169,15 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   // Periodic data cleanup
   const purgeTimer = setInterval(() => {
     auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);
-    costRepo.purgeOlderThan(90); // keep 90 days of cost data
+    costRepo.purgeOlderThan(90);
+    taskRepo.purgeOlderThan(90); // keep 90 days of completed tasks
   }, AUDIT_PURGE_INTERVAL_MS);
   purgeTimer.unref();
 
   // Initial purge on startup
   auditRepo.purgeOlderThan(AUDIT_RETENTION_DAYS);
   costRepo.purgeOlderThan(90);
+  taskRepo.purgeOlderThan(90);
 
   app.addHook('onClose', async () => {
     clearInterval(purgeTimer);

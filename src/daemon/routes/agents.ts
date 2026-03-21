@@ -20,6 +20,21 @@ export function registerAgentRoutes(
     return AgentManager.detectInstalledAgents();
   });
 
+  // Enable/disable an agent at runtime
+  app.post<{ Params: { id: string } }>('/agents/:id/enable', async (request, reply) => {
+    const agent = agentManager.listAgents().find(a => a.id === request.params.id);
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+    agentManager.setEnabled(request.params.id, true);
+    return { id: request.params.id, enabled: true };
+  });
+
+  app.post<{ Params: { id: string } }>('/agents/:id/disable', async (request, reply) => {
+    const agent = agentManager.listAgents().find(a => a.id === request.params.id);
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+    agentManager.setEnabled(request.params.id, false);
+    return { id: request.params.id, enabled: false };
+  });
+
   app.post<{ Params: { id: string } }>('/agents/:id/health', async (request, reply) => {
     const available = await agentManager.checkAgent(request.params.id);
     return { id: request.params.id, available };

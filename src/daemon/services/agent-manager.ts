@@ -65,6 +65,13 @@ export class AgentManager {
     return this.agentRepo.listAll();
   }
 
+  setEnabled(id: string, enabled: boolean): void {
+    this.agentRepo.setEnabled(id, enabled);
+    if (!enabled) {
+      this.agentRepo.setAvailability(id, false);
+    }
+  }
+
   getAvailableAgents(): AgentDescriptor[] {
     return this.agentRepo.listAvailable();
   }

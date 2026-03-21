@@ -22,7 +22,7 @@ export function registerHealthRoutes(
   webhookManager?: WebhookManager,
 ): void {
   app.get('/health', async () => {
-    return { status: 'ok', uptime: metrics.getUptime(), version: '2.3.0' };
+    return { status: 'ok', uptime: metrics.getUptime(), version: '2.4.0' };
   });
 
   app.get('/health/ready', async (_request, reply) => {
