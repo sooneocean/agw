@@ -187,18 +187,28 @@ export function createDatabase(dbPath: string): Database.Database {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  db.exec(SCHEMA);
 
-  // Migration: add status column to cost_records
-  try {
-    db.exec(`ALTER TABLE cost_records ADD COLUMN status TEXT DEFAULT 'recorded'`);
-  } catch {
-    // Column already exists — ignore
+  // Migrations MUST run before SCHEMA (SCHEMA creates indexes on new columns)
+  const migrations = [
+    `ALTER TABLE tasks ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE tasks ADD COLUMN timeout_ms INTEGER`,
+    `ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE tasks ADD COLUMN depends_on TEXT`,
+    `ALTER TABLE cost_records ADD COLUMN status TEXT DEFAULT 'recorded'`,
+  ];
+  // Only run migrations if tasks table already exists (not a fresh DB)
+  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get();
+  if (tableExists) {
+    for (const sql of migrations) {
+      try { db.exec(sql); } catch { /* column already exists */ }
+    }
   }
+
+  db.exec(SCHEMA);
 
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_cost_status ON cost_records(status)`);
-  } catch { /* column may not exist on very old DBs */ }
+  } catch { /* ignore */ }
 
   // Seed agents if table is empty
   const count = db.prepare('SELECT COUNT(*) as cnt FROM agents').get() as { cnt: number };
