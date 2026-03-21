@@ -30,8 +30,11 @@ describe('MCP Integration', () => {
     expect(body.protocol).toBe('mcp');
     expect(body.tools).toHaveLength(5);
     expect(body.resources).toHaveLength(2);
-    expect(body.transports).toContain('stdio');
-    expect(body.transports).toContain('sse');
+    expect(body.transports.stdio).toBeDefined();
+    expect(body.transports.sse).toBeDefined();
+    expect(body.transports.stdio.status).toBe('primary');
+    expect(body.transports.sse.status).toBe('active');
+    expect(typeof body.activeSessions).toBe('number');
   });
 
   it('tool definitions are valid', () => {
