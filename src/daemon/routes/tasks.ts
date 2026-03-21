@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { TaskExecutor } from '../services/task-executor.js';
 import type { LlmRouter } from '../../router/llm-router.js';
 import type { AgentManager } from '../services/agent-manager.js';
+import type { AgentLearning } from '../services/agent-learning.js';
 import type { AppConfig } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
 
@@ -11,6 +12,7 @@ export function registerTaskRoutes(
   router: LlmRouter,
   agentManager: AgentManager,
   config: AppConfig,
+  agentLearning?: AgentLearning,
 ): void {
   const createTaskSchema = {
     body: {
@@ -47,11 +49,21 @@ export function registerTaskRoutes(
         return reply.status(503).send({ error: 'No agents available. Check CLI installations.' });
       }
 
+      // Check agent learning for a recommendation
+      let learnedAgent: string | undefined;
+      if (!preferredAgent && agentLearning) {
+        const category = (await import('../services/agent-learning.js')).AgentLearning.categorize(prompt);
+        const best = agentLearning.getBestAgent(category);
+        if (best && availableAgents.some(a => a.id === best)) {
+          learnedAgent = best;
+        }
+      }
+
       let lowConfidence = false;
       const task = await executor.execute(
-        { prompt, preferredAgent, workingDirectory, priority, timeoutMs, tags },
+        { prompt, preferredAgent: preferredAgent ?? learnedAgent, workingDirectory, priority, timeoutMs, tags },
         async (p) => {
-          const decision = await router.route(p, availableAgents, preferredAgent);
+          const decision = await router.route(p, availableAgents, preferredAgent ?? learnedAgent);
           if (decision.confidence < 0.5) lowConfidence = true;
           return decision;
         },
@@ -158,6 +170,30 @@ export function registerTaskRoutes(
       return reply.status(400).send({ error: 'Task cannot be cancelled (not running/pending)' });
     }
     return { cancelled: true, taskId: request.params.id };
+  });
+
+  // Retry a failed/cancelled task
+  app.post<{ Params: { id: string } }>('/tasks/:id/retry', async (request, reply) => {
+    const original = executor.getTask(request.params.id);
+    if (!original) return reply.status(404).send({ error: 'Task not found' });
+    if (original.status !== 'failed' && original.status !== 'cancelled') {
+      return reply.status(400).send({ error: 'Only failed/cancelled tasks can be retried' });
+    }
+
+    const availableAgents = agentManager.getAvailableAgents();
+    const retried = await executor.execute(
+      {
+        prompt: original.prompt,
+        preferredAgent: original.assignedAgent,
+        workingDirectory: original.workingDirectory,
+        priority: original.priority,
+        tags: original.tags,
+        timeoutMs: original.timeoutMs,
+      },
+      async (p) => router.route(p, availableAgents, original.assignedAgent),
+    );
+
+    return reply.status(201).send(retried);
   });
 
   app.get<{ Querystring: { limit?: string; offset?: string; tag?: string } }>('/tasks', async (request) => {

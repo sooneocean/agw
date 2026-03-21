@@ -8,13 +8,14 @@ import { registerCostsCommand } from './commands/costs.js';
 import { registerWorkflowCommand } from './commands/workflow.js';
 import { registerComboCommand } from './commands/combo.js';
 import { registerDashboardCommand } from './commands/dashboard.js';
+import { registerCancelCommand } from './commands/cancel.js';
 
 export function createCli(): Command {
   const program = new Command();
   program
     .name('agw')
     .description('Agent Gateway — route tasks to the best AI agent')
-    .version('1.8.0');
+    .version('1.9.0');
 
   registerRunCommand(program);
   registerStatusCommand(program);
@@ -25,6 +26,7 @@ export function createCli(): Command {
   registerWorkflowCommand(program);
   registerComboCommand(program);
   registerDashboardCommand(program);
+  registerCancelCommand(program);
 
   return program;
 }

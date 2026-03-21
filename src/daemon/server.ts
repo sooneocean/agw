@@ -37,6 +37,7 @@ import { registerReplayRoutes } from './routes/replay.js';
 import { registerExportImportRoutes } from './routes/export-import.js';
 import { CapabilityDiscovery } from './services/capability-discovery.js';
 import { SnapshotManager } from './services/snapshot.js';
+import { AgentLearning } from './services/agent-learning.js';
 import { registerCapabilityRoutes } from './routes/capabilities.js';
 import { registerBatchRoutes } from './routes/batch.js';
 import { registerSnapshotRoutes } from './routes/snapshots.js';
@@ -82,6 +83,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const replayManager = new ReplayManager(taskRepo, comboRepo, executor, comboExecutor, router, agentManager, config.allowedWorkspaces);
   const capDiscovery = new CapabilityDiscovery();
   const snapshotManager = new SnapshotManager(dbPath);
+  const agentLearning = new AgentLearning(db);
 
   const app = Fastify({
     logger: false,
@@ -91,7 +93,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerAuthMiddleware(app, config.authToken);
 
   registerAgentRoutes(app, agentManager);
-  registerTaskRoutes(app, executor, router, agentManager, config);
+  registerTaskRoutes(app, executor, router, agentManager, config, agentLearning);
   registerWorkflowRoutes(app, workflowExecutor, config);
   registerCostRoutes(app, costRepo, config);
   registerComboRoutes(app, comboExecutor, config);
@@ -109,6 +111,39 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   app.register(import('./routes/ui.js'));
 
   agentManager.runHealthChecks().catch(() => {});
+
+  // Wire task lifecycle events → webhooks, metrics, agent learning
+  executor.on('task:done', (taskId: string, result: { exitCode: number; durationMs: number; costEstimate?: number }) => {
+    // Record duration for metrics
+    metrics.recordDuration(result.durationMs);
+
+    // Notify webhooks
+    const task = taskRepo.getById(taskId);
+    const event = result.exitCode === 0 ? 'task.completed' : 'task.failed';
+    webhookManager.emit(event, {
+      taskId,
+      agent: task?.assignedAgent,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+    }).catch(() => {});
+
+    // Record for agent learning
+    if (task?.assignedAgent) {
+      const category = AgentLearning.categorize(task.prompt);
+      agentLearning.record(
+        task.assignedAgent, category,
+        result.exitCode === 0,
+        result.durationMs,
+        result.costEstimate ?? 0,
+      );
+    }
+  });
+
+  executor.on('task:status', (taskId: string, info: { status: string }) => {
+    if (info.status === 'cancelled') {
+      webhookManager.emit('task.cancelled', { taskId }).catch(() => {});
+    }
+  });
 
   // Periodic data cleanup
   const purgeTimer = setInterval(() => {
