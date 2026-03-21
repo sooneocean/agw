@@ -65,4 +65,19 @@ export function registerAgentRoutes(
       })),
     };
   });
+
+  // Get/update agent configuration
+  app.get<{ Params: { id: string } }>('/agents/:id/config', async (request, reply) => {
+    const agent = agentManager.listAgents().find(a => a.id === request.params.id);
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+    return {
+      id: agent.id,
+      name: agent.name,
+      command: agent.command,
+      args: agent.args,
+      enabled: agent.enabled,
+      available: agent.available,
+      healthCheckCommand: agent.healthCheckCommand,
+    };
+  });
 }

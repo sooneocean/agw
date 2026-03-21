@@ -23,6 +23,7 @@ export interface TaskDescriptor {
   priority: number;
   tags?: string[];
   timeoutMs?: number;
+  pinned?: boolean;
   createdAt: string;
   completedAt?: string;
   result?: TaskResult;

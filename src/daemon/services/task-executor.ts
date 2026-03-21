@@ -256,6 +256,9 @@ export class TaskExecutor extends EventEmitter {
     if (updates.priority !== undefined) this.taskRepo.updatePriority(taskId, updates.priority);
   }
 
+  pinTask(taskId: string): void { this.taskRepo.pin(taskId); }
+  unpinTask(taskId: string): void { this.taskRepo.unpin(taskId); }
+
   getCostRepo(): CostRepo | null {
     return this.costRepo;
   }

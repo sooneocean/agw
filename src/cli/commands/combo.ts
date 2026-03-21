@@ -3,6 +3,7 @@ import { HttpClient } from '../http-client.js';
 import { handleCliError } from '../error-handler.js';
 import { parseDsl } from '../../dsl/parser.js';
 import type { ComboDescriptor, ComboPreset } from '../../types.js';
+import { registerComboWatchCommand } from './combo-watch.js';
 
 export function registerComboCommand(program: Command): void {
   const combo = program
@@ -149,4 +150,6 @@ export function registerComboCommand(program: Command): void {
         handleCliError(err);
       }
     });
+
+  registerComboWatchCommand(combo);
 }

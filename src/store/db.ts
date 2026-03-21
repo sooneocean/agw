@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   workflow_id TEXT,
   step_index INTEGER,
   tags TEXT NOT NULL DEFAULT '[]',
-  timeout_ms INTEGER
+  timeout_ms INTEGER,
+  pinned INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -146,6 +147,14 @@ CREATE TABLE IF NOT EXISTS agent_scores (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at);
+
+CREATE TABLE IF NOT EXISTS task_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id);
 `;
 
 const SEED_AGENTS = [

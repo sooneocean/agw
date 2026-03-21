@@ -227,6 +227,20 @@ export function registerTaskRoutes(
     return executor.getTask(request.params.id);
   });
 
+  app.post<{ Params: { id: string } }>('/tasks/:id/pin', async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    executor.pinTask(request.params.id);
+    return { pinned: true, taskId: request.params.id };
+  });
+
+  app.post<{ Params: { id: string } }>('/tasks/:id/unpin', async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    executor.unpinTask(request.params.id);
+    return { pinned: false, taskId: request.params.id };
+  });
+
   // Queue visibility
   app.get('/tasks/queue', async () => {
     return executor.getQueueInfo();

@@ -24,6 +24,7 @@ interface TaskRow {
   step_index: number | null;
   tags: string;
   timeout_ms: number | null;
+  pinned: number;
 }
 
 function rowToTask(row: TaskRow): TaskDescriptor {
@@ -43,6 +44,7 @@ function rowToTask(row: TaskRow): TaskDescriptor {
   if (row.step_index !== null) task.stepIndex = row.step_index;
   if (row.tags && row.tags !== '[]') task.tags = JSON.parse(row.tags);
   if (row.timeout_ms) task.timeoutMs = row.timeout_ms;
+  if (row.pinned) task.pinned = true;
   if (row.exit_code !== null) {
     task.result = {
       exitCode: row.exit_code,
@@ -197,11 +199,19 @@ export class TaskRepo {
     this.db.prepare('UPDATE tasks SET priority = ? WHERE task_id = ?').run(priority, taskId);
   }
 
+  pin(taskId: string): void {
+    this.db.prepare('UPDATE tasks SET pinned = 1 WHERE task_id = ?').run(taskId);
+  }
+
+  unpin(taskId: string): void {
+    this.db.prepare('UPDATE tasks SET pinned = 0 WHERE task_id = ?').run(taskId);
+  }
+
   /** Purge completed/failed/cancelled tasks older than N days */
   purgeOlderThan(days: number): number {
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
     const result = this.db.prepare(
-      "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ?"
+      "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ? AND (pinned IS NULL OR pinned = 0)"
     ).run(cutoff);
     return result.changes;
   }

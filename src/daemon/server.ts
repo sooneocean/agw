@@ -11,6 +11,7 @@ import { CostRepo } from '../store/cost-repo.js';
 import { WorkflowRepo } from '../store/workflow-repo.js';
 import { ComboRepo } from '../store/combo-repo.js';
 import { MemoryRepo } from '../store/memory-repo.js';
+import { NoteRepo } from '../store/note-repo.js';
 import { AgentManager } from './services/agent-manager.js';
 import { TaskExecutor } from './services/task-executor.js';
 import { WorkflowExecutor } from './services/workflow-executor.js';
@@ -45,6 +46,7 @@ import { registerBatchRoutes } from './routes/batch.js';
 import { registerSnapshotRoutes } from './routes/snapshots.js';
 import { registerEventRoutes } from './routes/events.js';
 import { registerAuditRoutes } from './routes/audit.js';
+import { registerNoteRoutes } from './routes/notes.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -68,6 +70,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const workflowRepo = new WorkflowRepo(db);
   const comboRepo = new ComboRepo(db);
   const memoryRepo = new MemoryRepo(db);
+  const noteRepo = new NoteRepo(db);
 
   const agentManager = new AgentManager(agentRepo, auditRepo, config);
   const executor = new TaskExecutor(
@@ -120,6 +123,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   registerSnapshotRoutes(app, snapshotManager);
   registerEventRoutes(app, executor, comboExecutor);
   registerAuditRoutes(app, auditRepo);
+  registerNoteRoutes(app, noteRepo);
 
   app.register(import('./routes/ui.js'));
 
