@@ -14,13 +14,14 @@ import { registerStatsCommand } from './commands/stats.js';
 import { registerEventsCommand } from './commands/events.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerWatchCommand } from './commands/watch.js';
+import { VERSION } from '../version.js';
 
 export function createCli(): Command {
   const program = new Command();
   program
     .name('agw')
     .description('Agent Gateway — route tasks to the best AI agent')
-    .version('2.5.0');
+    .version(VERSION);
 
   registerRunCommand(program);
   registerStatusCommand(program);

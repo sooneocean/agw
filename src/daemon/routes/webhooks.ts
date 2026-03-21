@@ -90,7 +90,17 @@ export function registerWebhookRoutes(app: FastifyInstance, webhookManager: Webh
     return reply.status(201).send({ registered: true, url: body.url });
   });
 
-  app.delete<{ Body: { url: string } }>('/webhooks', async (request) => {
+  app.delete<{ Body: { url: string } }>('/webhooks', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['url'],
+        properties: {
+          url: { type: 'string' },
+        },
+      },
+    },
+  }, async (request) => {
     webhookManager.removeWebhook(request.body.url);
     return { removed: true };
   });

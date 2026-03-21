@@ -62,6 +62,8 @@ open http://127.0.0.1:4927/ui
 | **Web UI** | Real-time dashboard at `/ui` |
 | **SSE Streaming** | Live stdout/stderr via `/tasks/:id/stream` |
 | **Structured Logging** | Pino JSON logs with configurable level |
+| **Rate Limiting** | Token bucket per IP, configurable |
+| **Multi-Tenant** | API key isolation with per-tenant quotas |
 
 ## Configuration
 
@@ -138,6 +140,9 @@ Environment variables (override config file):
 | GET | `/agents` | List agents |
 | POST | `/agents/:id/health` | Trigger health check |
 | GET | `/agents/:id/stats` | Agent performance stats |
+| POST | `/agents/:id/enable` | Enable agent |
+| POST | `/agents/:id/disable` | Disable agent |
+| GET | `/agents/detect` | Detect installed agents |
 
 ### Templates
 
@@ -180,12 +185,14 @@ Environment variables (override config file):
 | GET | `/health` | Health check |
 | GET | `/health/ready` | Readiness probe |
 | GET | `/metrics` | Detailed metrics |
+| GET | `/events` | SSE event stream |
+| GET | `/tasks/stats` | Task statistics |
 | GET | `/ui` | Web dashboard |
 
 ## CLI Commands
 
 ```
-agw run <prompt>         Submit a task (--agent, --priority, --timeout, --tag, --background, --cwd)
+agw run <prompt>         Submit a task (--agent, --priority, --timeout, --tag, --background, --cwd, --raw)
 agw status <taskId>      Check task status
 agw history              List recent tasks (--limit N)
 agw search [query]       Search tasks (--status, --agent, --tag, --since)
@@ -200,13 +207,20 @@ agw combo list           List recent combos
 agw workflow run|status|list
 agw costs                Show cost summary
 agw dashboard            Live terminal dashboard (--once)
+agw stats                Show task statistics and trends
+agw events               Stream live system events
+agw config show|get|set|path  Manage daemon configuration
+agw watch <taskId>       Watch a task in real-time
+agw combo dsl <expr> <input>  Run combo from DSL syntax
+agw agents detect        Detect installed CLI tools
+agw agents check         Trigger health checks
 agw daemon start|stop|status
 ```
 
 ## Development
 
 ```bash
-npm test          # Run 270+ tests
+npm test          # Run 320+ tests
 npm run build     # TypeScript compile
 npm run dev       # Start dev server
 ```

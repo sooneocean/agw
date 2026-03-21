@@ -5,6 +5,7 @@ import type { Scheduler } from '../services/scheduler.js';
 import type { MemoryRepo } from '../../store/memory-repo.js';
 import { COMBO_PRESETS } from '../services/combo-executor.js';
 import { createExport, validateImport } from '../services/export-import.js';
+import { VERSION } from '../../version.js';
 
 export function registerExportImportRoutes(
   app: FastifyInstance,
@@ -20,7 +21,7 @@ export function registerExportImportRoutes(
       webhooks: webhookManager.getWebhooks(),
       memory: memoryRepo.list(1000),
       scheduledJobs: scheduler.listJobs(),
-      version: '2.5.0',
+      version: VERSION,
     });
   });
 

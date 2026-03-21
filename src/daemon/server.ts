@@ -21,6 +21,8 @@ import { CircuitBreakerRegistry } from './services/circuit-breaker.js';
 import { TemplateEngine } from './services/template-engine.js';
 import { WebhookManager } from './services/webhook-manager.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
+import { registerRateLimiter } from './middleware/rate-limiter.js';
+import { TenantManager, registerTenantMiddleware } from './middleware/tenant.js';
 import { registerAgentRoutes } from './routes/agents.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
@@ -85,6 +87,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   const capDiscovery = new CapabilityDiscovery();
   const snapshotManager = new SnapshotManager(dbPath);
   const agentLearning = new AgentLearning(db);
+  const tenantManager = new TenantManager();
 
   const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST;
   const app = Fastify({
@@ -96,6 +99,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   });
 
   registerAuthMiddleware(app, config.authToken);
+  registerRateLimiter(app);
+  registerTenantMiddleware(app, tenantManager);
 
   registerAgentRoutes(app, agentManager, agentLearning, taskRepo, costRepo);
   registerTaskRoutes(app, executor, router, agentManager, config, agentLearning);

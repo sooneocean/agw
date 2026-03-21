@@ -8,6 +8,7 @@ import type { Scheduler } from '../services/scheduler.js';
 import type { WebhookManager } from '../services/webhook-manager.js';
 import type { AppConfig } from '../../types.js';
 import fs from 'node:fs';
+import { VERSION } from '../../version.js';
 
 export function registerHealthRoutes(
   app: FastifyInstance,
@@ -22,7 +23,7 @@ export function registerHealthRoutes(
   webhookManager?: WebhookManager,
 ): void {
   app.get('/health', async () => {
-    return { status: 'ok', uptime: metrics.getUptime(), version: '2.5.0' };
+    return { status: 'ok', uptime: metrics.getUptime(), version: VERSION };
   });
 
   app.get('/health/ready', async (_request, reply) => {
