@@ -22,7 +22,16 @@ async function main() {
   fs.writeFileSync(PID_FILE, String(process.pid));
 
   const cleanup = async () => {
-    await app.close();
+    // Force exit after 10s if graceful shutdown hangs
+    const forceTimer = setTimeout(() => {
+      console.error('Shutdown timeout — forcing exit');
+      process.exit(1);
+    }, 10_000);
+    forceTimer.unref();
+
+    try {
+      await app.close();
+    } catch { /* ignore close errors */ }
     if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
     process.exit(0);
   };

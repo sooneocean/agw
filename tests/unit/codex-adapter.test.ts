@@ -8,7 +8,7 @@ describe('CodexAdapter', () => {
       taskId: 't1', prompt: 'hello', workingDirectory: '/tmp',
       status: 'running' as const, priority: 3, createdAt: new Date().toISOString(),
     };
-    const args = (adapter as any).buildArgs(task);
+    const args = adapter.buildArgs(task);
     expect(args).toContain('exec');
     expect(args).toContain('-'); // stdin marker
     expect(args).not.toContain('hello'); // prompt NOT in argv
@@ -16,6 +16,6 @@ describe('CodexAdapter', () => {
 
   it('uses stdin for prompt delivery', () => {
     const adapter = new CodexAdapter(5000, 1024);
-    expect((adapter as any).useStdin()).toBe(true);
+    expect(adapter.useStdin()).toBe(true);
   });
 });

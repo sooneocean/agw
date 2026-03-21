@@ -25,8 +25,10 @@ export function registerAuthMiddleware(app: FastifyInstance, authToken?: string)
   const expected = `Bearer ${authToken}`;
 
   app.addHook('onRequest', async (request, reply) => {
-    // Skip auth for Web UI static page (auth handled client-side via header)
+    // Skip auth for public endpoints
     if (request.url === '/ui' || request.url.startsWith('/ui/')) return;
+    if (request.url === '/health' || request.url === '/health/ready') return;
+    if (request.url.startsWith('/docs')) return;
 
     const header = request.headers.authorization ?? '';
     if (!safeCompare(header, expected)) {

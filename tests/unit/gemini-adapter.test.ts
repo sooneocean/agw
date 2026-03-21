@@ -13,25 +13,25 @@ describe('GeminiAdapter', () => {
 
   it('buildArgs returns extra args followed by stdin marker', () => {
     const adapter = new GeminiAdapter(5000, 1024);
-    const args = (adapter as any).buildArgs(makeTask());
+    const args = adapter.buildArgs(makeTask());
     expect(args).toEqual(['-']);
   });
 
   it('buildArgs includes extra args when provided', () => {
     const adapter = new GeminiAdapter(5000, 1024, ['--json']);
-    const args = (adapter as any).buildArgs(makeTask());
+    const args = adapter.buildArgs(makeTask());
     expect(args).toEqual(['--json', '-']);
   });
 
   it('buildArgs does not include the prompt in args', () => {
     const adapter = new GeminiAdapter(5000, 1024);
-    const args = (adapter as any).buildArgs(makeTask());
+    const args = adapter.buildArgs(makeTask());
     expect(args).not.toContain('hello');
   });
 
   it('useStdin returns true', () => {
     const adapter = new GeminiAdapter(5000, 1024);
-    expect((adapter as any).useStdin()).toBe(true);
+    expect(adapter.useStdin()).toBe(true);
   });
 
   it('describe returns correct agent descriptor', () => {

@@ -15,10 +15,10 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
   }
 
   abstract describe(): AgentDescriptor;
-  protected abstract buildArgs(task: TaskDescriptor): string[];
+  abstract buildArgs(task: TaskDescriptor): string[];
 
   /** Whether this adapter sends the prompt via stdin instead of argv. Override to return true. */
-  protected useStdin(): boolean {
+  useStdin(): boolean {
     return false;
   }
 
