@@ -149,13 +149,14 @@ export class ComboExecutor extends EventEmitter {
       }
     })();
 
+    let comboTimer: NodeJS.Timeout | undefined;
     try {
       if (timeoutMs && timeoutMs > 0) {
         await Promise.race([
           execution,
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`Combo timeout after ${timeoutMs}ms`)), timeoutMs)
-          ),
+          new Promise<never>((_, reject) => {
+            comboTimer = setTimeout(() => reject(new Error(`Combo timeout after ${timeoutMs}ms`)), timeoutMs);
+          }),
         ]);
       } else {
         await execution;
@@ -167,6 +168,8 @@ export class ComboExecutor extends EventEmitter {
       this.comboRepo.updateStatus(comboId, 'failed');
       this.auditRepo.log(null, 'combo.failed', { comboId, error: (err as Error).message });
       this.emit('combo:done', comboId);
+    } finally {
+      if (comboTimer) clearTimeout(comboTimer);
     }
     this.cancelledCombos.delete(comboId);
   }

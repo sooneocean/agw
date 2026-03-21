@@ -33,8 +33,8 @@ export function registerDaemonCommand(program: Command): void {
 
       if (options.d) {
         // Daemonize
-        const serverPath = path.resolve(import.meta.dirname, '../../daemon/server.js');
-        const child = spawn('tsx', [serverPath], {
+        const mainPath = path.resolve(import.meta.dirname, '../../daemon/main.js');
+        const child = spawn('tsx', [mainPath], {
           detached: true,
           stdio: 'ignore',
           env: { ...process.env },

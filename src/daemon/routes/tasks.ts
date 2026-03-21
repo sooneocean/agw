@@ -115,9 +115,11 @@ export function registerTaskRoutes(
     });
 
     const sendEvent = (event: string, data: unknown) => {
-      if (!reply.raw.destroyed) {
-        reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      }
+      try {
+        if (!reply.raw.destroyed) {
+          reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        }
+      } catch { /* stream closed */ }
     };
 
     // Idle timeout — close stream if no events after 5 minutes

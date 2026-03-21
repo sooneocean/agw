@@ -19,14 +19,18 @@ export function registerEventRoutes(
     });
 
     const send = (event: string, data: unknown) => {
-      if (!reply.raw.destroyed) {
-        reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      }
+      try {
+        if (!reply.raw.destroyed) {
+          reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        }
+      } catch { /* stream closed */ }
     };
 
     // Heartbeat every 30s to keep connection alive
     const heartbeat = setInterval(() => {
-      if (!reply.raw.destroyed) { reply.raw.write(': heartbeat\n\n'); }
+      try {
+        if (!reply.raw.destroyed) { reply.raw.write(': heartbeat\n\n'); }
+      } catch { /* stream closed */ }
     }, 30_000);
 
     const onTaskStatus = (taskId: string, info: unknown) => {

@@ -90,8 +90,14 @@ export class TaskExecutor extends EventEmitter {
 
       if (depTask.status !== 'completed' && depTask.status !== 'failed' && depTask.status !== 'cancelled') {
         this.auditRepo.log(taskId, 'task.queued', { reason: 'waiting for dependency', dependsOn: request.dependsOn });
+        const maxWaitMs = request.timeoutMs ?? 300_000; // default 5 min max wait
+        const startedAt = Date.now();
         await new Promise<void>((resolve, reject) => {
           const check = () => {
+            if (Date.now() - startedAt > maxWaitMs) {
+              reject(new Error(`Dependency wait timeout after ${maxWaitMs}ms`));
+              return;
+            }
             const dep = this.taskRepo.getById(request.dependsOn!);
             if (!dep) { reject(new Error('Dependency task disappeared')); return; }
             if (dep.status === 'completed') { resolve(); return; }

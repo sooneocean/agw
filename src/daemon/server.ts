@@ -158,7 +158,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   healthCheckTimer.unref();
 
   // Wire task lifecycle events → webhooks, metrics, agent learning
-  executor.on('task:done', (taskId: string, result: { exitCode: number; durationMs: number; costEstimate?: number }) => {
+  const onTaskDone = (taskId: string, result: { exitCode: number; durationMs: number; costEstimate?: number }) => {
     // Record duration for metrics
     metrics.recordDuration(result.durationMs);
 
@@ -182,16 +182,18 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
         result.costEstimate ?? 0,
       );
     }
-  });
+  };
+  executor.on('task:done', onTaskDone);
 
-  executor.on('task:status', (taskId: string, info: { status: string }) => {
+  const onTaskStatus = (taskId: string, info: { status: string }) => {
     if (info.status === 'cancelled') {
       webhookManager.emit('task.cancelled', { taskId }).catch(() => {});
     }
-  });
+  };
+  executor.on('task:status', onTaskStatus);
 
   // Wire combo lifecycle events → webhooks
-  comboExecutor.on('combo:done', (comboId: string) => {
+  const onComboDone = (comboId: string) => {
     const combo = comboRepo.getById(comboId);
     if (combo) {
       const event = combo.status === 'completed' ? 'combo.completed' : 'combo.failed';
@@ -203,7 +205,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
         taskCount: combo.taskIds.length,
       }).catch(() => {});
     }
-  });
+  };
+  comboExecutor.on('combo:done', onComboDone);
 
   // Periodic data cleanup
   const purgeTimer = setInterval(() => {
@@ -221,6 +224,11 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   app.addHook('onClose', async () => {
     clearInterval(purgeTimer);
     clearInterval(healthCheckTimer);
+
+    // Remove event listeners to prevent leaks
+    executor.removeListener('task:done', onTaskDone);
+    executor.removeListener('task:status', onTaskStatus);
+    comboExecutor.removeListener('combo:done', onComboDone);
 
     // Mark running tasks as failed
     const runningTasks = taskRepo.listByStatus('running');
