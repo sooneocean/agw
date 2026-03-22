@@ -26,4 +26,19 @@ export class CodexAdapter extends BaseAdapter {
     // Prompt is sent via stdin (reads from stdin when prompt arg is "-")
     return ['exec', ...this.extraArgs, '-'];
   }
+
+  protected parseOutput(raw: string): { cleanOutput: string; cost?: number; tokens?: number } {
+    // Codex may return JSON with result field similar to Claude
+    try {
+      const parsed = JSON.parse(raw.trim());
+      if (parsed.type === 'result' && typeof parsed.result === 'string') {
+        return {
+          cleanOutput: parsed.result,
+          cost: parsed.total_cost_usd,
+          tokens: parsed.usage ? (parsed.usage.input_tokens ?? 0) + (parsed.usage.output_tokens ?? 0) : undefined,
+        };
+      }
+    } catch { /* not JSON — return raw (Codex often returns plain text) */ }
+    return { cleanOutput: raw };
+  }
 }

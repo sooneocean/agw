@@ -107,16 +107,24 @@ export abstract class BaseAdapter extends EventEmitter implements UnifiedAgent {
 
       proc.on('close', (code, signal) => {
         if (signal === 'SIGTERM') killed = true;
+        const parsed = this.parseOutput(stdout);
         resolve({
           exitCode: code ?? (killed ? 137 : 1),
-          stdout,
+          stdout: parsed.cleanOutput,
           stderr,
           stdoutTruncated,
           stderrTruncated,
           durationMs: Date.now() - start,
+          costEstimate: parsed.cost,
+          tokenEstimate: parsed.tokens,
         });
       });
     });
+  }
+
+  /** Parse agent output to extract clean text, cost, and token usage. Override per adapter. */
+  protected parseOutput(raw: string): { cleanOutput: string; cost?: number; tokens?: number } {
+    return { cleanOutput: raw };
   }
 
   async healthCheck(): Promise<boolean> {
