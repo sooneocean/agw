@@ -8,26 +8,6 @@ import type { AgentManager } from './agent-manager.js';
 import { createLogger } from '../../logger.js';
 const log = createLogger('combo-executor');
 
-// Interpolate template variables: {{input}}, {{prev}}, {{step.N}}, {{all}}
-function interpolate(template: string, context: { input: string; prev?: string; stepResults: Record<number, string> }): string {
-  let result = template.replace(/\{\{input\}\}/g, context.input);
-  if (context.prev !== undefined) {
-    result = result.replace(/\{\{prev\}\}/g, context.prev);
-  }
-  // {{step.0}}, {{step.1}}, etc.
-  result = result.replace(/\{\{step\.(\d+)\}\}/g, (_match, idx) => {
-    return context.stepResults[parseInt(idx, 10)] ?? `[step ${idx} not yet available]`;
-  });
-  // {{all}} — all step results concatenated
-  result = result.replace(/\{\{all\}\}/g, () => {
-    return Object.entries(context.stepResults)
-      .sort(([a], [b]) => parseInt(a) - parseInt(b))
-      .map(([idx, out]) => `--- Step ${idx} ---\n${out}`)
-      .join('\n\n');
-  });
-  return result;
-}
-
 export interface ReviewVerdict {
   verdict: 'APPROVED' | 'REJECTED';
   feedback?: string;
@@ -57,6 +37,34 @@ interface MapStepResult {
   error?: boolean;
   message?: string;
   retried?: boolean;
+}
+
+// Interpolate template variables: {{input}}, {{prev}}, {{step.N}}, {{all}}
+export function interpolate(template: string, context: { input: string; prev?: string; stepResults: Record<number, string> }): string {
+  let result = template.replace(/\{\{input\}\}/g, context.input);
+  if (context.prev !== undefined) {
+    result = result.replace(/\{\{prev\}\}/g, context.prev);
+  }
+  // {{step.0}}, {{step.1}}, etc.
+  result = result.replace(/\{\{step\.(\d+)\}\}/g, (_match, idx) => {
+    return context.stepResults[parseInt(idx, 10)] ?? `[step ${idx} not yet available]`;
+  });
+  // {{all}} — all step results concatenated
+  result = result.replace(/\{\{all\}\}/g, () => {
+    return Object.entries(context.stepResults)
+      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+      .map(([idx, out]) => `--- Step ${idx} ---\n${out}`)
+      .join('\n\n');
+  });
+  return result;
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
 }
 
 // Built-in presets
@@ -101,13 +109,15 @@ export const COMBO_PRESETS: ComboPreset[] = [
     pattern: 'debate',
     steps: [
       { agent: 'claude', role: 'debater-1', prompt: 'Take a strong position on this topic and argue for it:\n\n{{input}}' },
-      { agent: 'codex', role: 'debater-2', prompt: 'Take the opposite position from this argument and counter it:\n\nOriginal topic: {{input}}\n\nFirst position:\n{{step.0}}' },
+      { agent: 'codex', role: 'debater-2', prompt: 'Take the opposite position on this topic and argue against it:\n\n{{input}}' },
       { agent: 'claude', role: 'judge', prompt: 'You are a neutral judge. Evaluate both positions and synthesize the strongest answer:\n\nOriginal question: {{input}}\n\nPosition A:\n{{step.0}}\n\nPosition B:\n{{step.1}}' },
     ],
   },
 ];
 
 export class ComboExecutor extends EventEmitter {
+  private cancelledCombos = new Set<string>();
+
   constructor(
     private comboRepo: ComboRepo,
     private auditRepo: AuditRepo,
@@ -115,6 +125,17 @@ export class ComboExecutor extends EventEmitter {
     private agentManager: AgentManager,
   ) {
     super();
+  }
+
+  cancelCombo(comboId: string): void {
+    this.cancelledCombos.add(comboId);
+    this.comboRepo.updateStatus(comboId, 'failed');
+    this.auditRepo.log(null, 'combo.failed', { comboId, reason: 'cancelled by user' });
+    this.emit('combo:done', comboId);
+  }
+
+  private isCancelled(comboId: string): boolean {
+    return this.cancelledCombos.has(comboId);
   }
 
   getPresets(): ComboPreset[] {
@@ -151,7 +172,8 @@ export class ComboExecutor extends EventEmitter {
   private async runCombo(comboId: string, request: CreateComboRequest): Promise<void> {
     this.comboRepo.updateStatus(comboId, 'running');
 
-    try {
+    const timeoutMs = request.timeoutMs;
+    const execution = (async () => {
       switch (request.pattern) {
         case 'pipeline':
           await this.executePipeline(comboId, request);
@@ -166,6 +188,20 @@ export class ComboExecutor extends EventEmitter {
           await this.executeDebate(comboId, request);
           break;
       }
+    })();
+
+    let comboTimer: NodeJS.Timeout | undefined;
+    try {
+      if (timeoutMs && timeoutMs > 0) {
+        await Promise.race([
+          execution,
+          new Promise<never>((_, reject) => {
+            comboTimer = setTimeout(() => reject(new Error(`Combo timeout after ${timeoutMs}ms`)), timeoutMs);
+          }),
+        ]);
+      } else {
+        await execution;
+      }
       this.comboRepo.updateStatus(comboId, 'completed');
       this.auditRepo.log(null, 'combo.completed', { comboId });
       this.emit('combo:done', comboId);
@@ -173,7 +209,10 @@ export class ComboExecutor extends EventEmitter {
       this.comboRepo.updateStatus(comboId, 'failed');
       this.auditRepo.log(null, 'combo.failed', { comboId, error: (err as Error).message });
       this.emit('combo:done', comboId);
+    } finally {
+      if (comboTimer) clearTimeout(comboTimer);
     }
+    this.cancelledCombos.delete(comboId);
   }
 
   /** Pipeline: each step's output feeds into the next step's prompt */
@@ -182,12 +221,14 @@ export class ComboExecutor extends EventEmitter {
     let prev = '';
 
     for (let i = 0; i < request.steps.length; i++) {
+      if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
+
       const step = request.steps[i];
       const prompt = interpolate(step.prompt, { input: request.input, prev, stepResults });
 
       this.auditRepo.log(null, 'combo.step', { comboId, stepIndex: i, agent: step.agent, role: step.role });
 
-      const task = await this.executeStep(comboId, step.agent, prompt, request, step.timeoutMs);
+      const task = await this.executeStep(comboId, step.agent, prompt, request);
       const output = task.result?.stdout ?? '';
       stepResults[i] = output;
       prev = output;
@@ -209,47 +250,54 @@ export class ComboExecutor extends EventEmitter {
     const reduceStep = request.steps[request.steps.length - 1];
     const stepResults: Record<number, string> = {};
 
-    // Map phase: run all map steps in parallel
-    log.info({ comboId, phase: 'map', count: mapSteps.length }, 'starting map phase');
+    // Map phase: run map steps in parallel chunks to limit concurrency
+    const concurrency = request.maxMapConcurrency ?? 5;
+    log.info({ comboId, phase: 'map', count: mapSteps.length, concurrency }, 'starting map phase');
     this.auditRepo.log(null, 'combo.step', { comboId, phase: 'map', count: mapSteps.length });
 
-    const mapPromises = mapSteps.map(async (step, i) => {
-      const prompt = interpolate(step.prompt, { input: request.input, stepResults });
-      const task = await this.executeStep(comboId, step.agent, prompt, request, step.timeoutMs);
-      this.comboRepo.addTaskId(comboId, task.taskId);
-      if (task.status === 'failed') throw new Error(`Step ${i} failed: exit code ${task.result?.exitCode}`);
-      return { step: i, agent: step.agent, role: step.role, task };
-    });
-
-    const settled = await Promise.allSettled(mapPromises);
+    const chunks = chunkArray(mapSteps.map((step, i) => ({ step, i })), concurrency);
 
     // Process results: retry failures once, then mark as error
     const results: MapStepResult[] = [];
-    for (const [i, outcome] of settled.entries()) {
-      const step = mapSteps[i];
-      if (outcome.status === 'fulfilled') {
-        const output = outcome.value.task.result?.stdout ?? '';
-        stepResults[i] = output;
-        this.comboRepo.setStepResult(comboId, i, output);
-        results.push({ step: i, agentId: step.agent, output });
-      } else {
-        // Retry once with same agent
-        log.warn({ comboId, step: i, agent: step.agent }, 'map step failed, retrying');
-        try {
-          const prompt = interpolate(step.prompt, { input: request.input, stepResults });
-          const retryTask = await this.executeStep(comboId, step.agent, prompt, request, step.timeoutMs);
-          this.comboRepo.addTaskId(comboId, retryTask.taskId);
-          if (retryTask.status === 'failed') throw new Error('Retry also failed');
-          const output = retryTask.result?.stdout ?? '';
+    for (const chunk of chunks) {
+      if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
+
+      const chunkPromises = chunk.map(async ({ step, i }) => {
+        const prompt = interpolate(step.prompt, { input: request.input, stepResults });
+        const task = await this.executeStep(comboId, step.agent, prompt, request);
+        this.comboRepo.addTaskId(comboId, task.taskId);
+        if (task.status === 'failed') throw new Error(`Step ${i} failed: exit code ${task.result?.exitCode}`);
+        return { step: i, agent: step.agent, role: step.role, task };
+      });
+
+      const settled = await Promise.allSettled(chunkPromises);
+
+      for (const [chunkIdx, outcome] of settled.entries()) {
+        const { step, i } = chunk[chunkIdx];
+        if (outcome.status === 'fulfilled') {
+          const output = outcome.value.task.result?.stdout ?? '';
           stepResults[i] = output;
           this.comboRepo.setStepResult(comboId, i, output);
-          results.push({ step: i, agentId: step.agent, output, retried: true });
-        } catch (retryErr) {
-          log.error({ comboId, step: i, error: (retryErr as Error).message }, 'map step retry failed');
-          const errorMarker = `[ERROR: Step ${i} (${step.role ?? step.agent}) failed after retry: ${(retryErr as Error).message}]`;
-          stepResults[i] = errorMarker;
-          this.comboRepo.setStepResult(comboId, i, errorMarker);
-          results.push({ step: i, agentId: step.agent, error: true, message: (retryErr as Error).message, retried: true });
+          results.push({ step: i, agentId: step.agent, output });
+        } else {
+          // Retry once with same agent
+          log.warn({ comboId, step: i, agent: step.agent }, 'map step failed, retrying');
+          try {
+            const prompt = interpolate(step.prompt, { input: request.input, stepResults });
+            const retryTask = await this.executeStep(comboId, step.agent, prompt, request);
+            this.comboRepo.addTaskId(comboId, retryTask.taskId);
+            if (retryTask.status === 'failed') throw new Error('Retry also failed');
+            const output = retryTask.result?.stdout ?? '';
+            stepResults[i] = output;
+            this.comboRepo.setStepResult(comboId, i, output);
+            results.push({ step: i, agentId: step.agent, output, retried: true });
+          } catch (retryErr) {
+            log.error({ comboId, step: i, error: (retryErr as Error).message }, 'map step retry failed');
+            const errorMarker = `[ERROR: Step ${i} (${step.role ?? step.agent}) failed after retry: ${(retryErr as Error).message}]`;
+            stepResults[i] = errorMarker;
+            this.comboRepo.setStepResult(comboId, i, errorMarker);
+            results.push({ step: i, agentId: step.agent, error: true, message: (retryErr as Error).message, retried: true });
+          }
         }
       }
     }
@@ -271,7 +319,7 @@ export class ComboExecutor extends EventEmitter {
     this.auditRepo.log(null, 'combo.step', { comboId, phase: 'reduce', agent: reduceStep.agent });
 
     const reducePrompt = interpolate(reduceStep.prompt, { input: request.input, stepResults });
-    const reduceTask = await this.executeStep(comboId, reduceStep.agent, reducePrompt, request, reduceStep.timeoutMs);
+    const reduceTask = await this.executeStep(comboId, reduceStep.agent, reducePrompt, request);
     const reduceIdx = request.steps.length - 1;
     const finalOutput = reduceTask.result?.stdout ?? '';
 
@@ -296,12 +344,11 @@ export class ComboExecutor extends EventEmitter {
 
     for (let iter = 0; iter < maxIter; iter++) {
       this.comboRepo.incrementIterations(comboId);
-      log.info({ comboId, iteration: iter + 1, maxIter }, 'review-loop iteration');
       this.auditRepo.log(null, 'combo.iteration', { comboId, iteration: iter + 1, maxIterations: maxIter });
 
       // Implementation step
       const implPrompt = interpolate(implStep.prompt, { input: request.input, prev, stepResults });
-      const implTask = await this.executeStep(comboId, implStep.agent, implPrompt, request, implStep.timeoutMs);
+      const implTask = await this.executeStep(comboId, implStep.agent, implPrompt, request);
       const implOutput = implTask.result?.stdout ?? '';
       this.comboRepo.addTaskId(comboId, implTask.taskId);
 
@@ -311,7 +358,7 @@ export class ComboExecutor extends EventEmitter {
 
       // Review step
       const reviewPrompt = interpolate(reviewStep.prompt, { input: request.input, prev: implOutput, stepResults });
-      const reviewTask = await this.executeStep(comboId, reviewStep.agent, reviewPrompt, request, reviewStep.timeoutMs);
+      const reviewTask = await this.executeStep(comboId, reviewStep.agent, reviewPrompt, request);
       const reviewOutput = reviewTask.result?.stdout ?? '';
       this.comboRepo.addTaskId(comboId, reviewTask.taskId);
 
@@ -337,15 +384,62 @@ export class ComboExecutor extends EventEmitter {
 
     if (!approved) {
       // Max iterations reached without approval — use last implementation
-      const combo = this.comboRepo.getById(comboId);
       this.comboRepo.setFinalOutput(comboId, `[Max iterations (${maxIter}) reached without approval]\n\n${stepResults[0] ?? ''}`);
     }
   }
 
-  /** Debate: step[0] argues, step[1] counters, step[2] judges */
+  /** Debate: debaters run in parallel (each only sees {{input}}), then judge synthesizes all results */
   private async executeDebate(comboId: string, request: CreateComboRequest): Promise<void> {
-    // Same as pipeline but with semantic labeling
-    await this.executePipeline(comboId, request);
+    const steps = request.steps;
+    if (steps.length < 2) throw new Error('Debate requires at least 2 steps');
+
+    const debaterSteps = steps.slice(0, -1);
+    const judgeStep = steps[steps.length - 1];
+    const stepResults: Record<number, string> = {};
+
+    // Phase 1: parallel debaters — each only sees {{input}}, NOT each other
+    // Note: status already set to 'running' by runCombo() — do NOT set again
+    const debaterPromises = debaterSteps.map(async (step, i) => {
+      if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
+      this.auditRepo.log(null, 'combo.step', { comboId, step: i, agent: step.agent, role: step.role, phase: 'debate' });
+      const prompt = interpolate(step.prompt, { input: request.input, stepResults: {}, prev: '' });
+      const task = await this.executeStep(comboId, step.agent, prompt, request);
+      this.comboRepo.addTaskId(comboId, task.taskId);
+      return { step: i, task };
+    });
+
+    const settled = await Promise.allSettled(debaterPromises);
+
+    let successCount = 0;
+    for (const [i, outcome] of settled.entries()) {
+      if (outcome.status === 'fulfilled' && outcome.value.task.status === 'completed') {
+        stepResults[i] = outcome.value.task.result?.stdout ?? '';
+        this.comboRepo.setStepResult(comboId, i, stepResults[i]);
+        successCount++;
+      } else {
+        stepResults[i] = `[ERROR: Debater ${i} failed]`;
+        this.comboRepo.setStepResult(comboId, i, stepResults[i]);
+        this.auditRepo.log(null, 'combo.partial', { comboId, step: i, error: 'debater failed' });
+      }
+    }
+
+    if (successCount === 0) {
+      throw new Error('All debaters failed');
+    }
+
+    // Phase 2: judge — sees all debater results
+    if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
+    this.auditRepo.log(null, 'combo.step', { comboId, step: debaterSteps.length, agent: judgeStep.agent, role: judgeStep.role, phase: 'judge' });
+    const judgePrompt = interpolate(judgeStep.prompt, { input: request.input, stepResults, prev: '' });
+    const judgeTask = await this.executeStep(comboId, judgeStep.agent, judgePrompt, request);
+    this.comboRepo.addTaskId(comboId, judgeTask.taskId);
+    if (judgeTask.status === 'failed') {
+      throw new Error(`Judge step failed: exit code ${judgeTask.result?.exitCode}`);
+    }
+
+    const finalOutput = judgeTask.result?.stdout ?? '';
+    this.comboRepo.setStepResult(comboId, debaterSteps.length, finalOutput);
+    this.comboRepo.setFinalOutput(comboId, finalOutput);
   }
 
   private async executeStep(
@@ -353,14 +447,12 @@ export class ComboExecutor extends EventEmitter {
     agentId: string,
     prompt: string,
     request: CreateComboRequest,
-    timeoutMs?: number,
   ) {
     const taskRequest: CreateTaskRequest = {
       prompt,
       preferredAgent: agentId,
       workingDirectory: request.workingDirectory,
       priority: request.priority,
-      timeoutMs,
     };
 
     return this.taskExecutor.execute(taskRequest);
