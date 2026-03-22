@@ -86,7 +86,17 @@ export function registerRunCommand(program: Command): void {
           console.log('─'.repeat(40));
           if (task.result) {
             if (task.result.stdout) console.log(task.result.stdout);
-            if (task.result.stderr) console.error(task.result.stderr);
+            if (task.result.stderr) {
+              // Show only error lines, not agent banners
+              const errorLines = task.result.stderr.split('\n').filter(l =>
+                l.includes('ERROR') || l.includes('Error') || l.includes('error:') || l.includes('failed')
+              );
+              if (errorLines.length > 0) {
+                console.error(errorLines.join('\n'));
+              } else if (task.result.exitCode !== 0) {
+                console.error(task.result.stderr);
+              }
+            }
             console.log('─'.repeat(40));
             const tokens = task.result.tokenEstimate ? `  ~${task.result.tokenEstimate} tokens` : '';
             const cost = task.result.costEstimate ? `  ~$${task.result.costEstimate.toFixed(3)}` : '';

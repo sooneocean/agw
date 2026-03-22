@@ -229,7 +229,11 @@ export class ComboExecutor extends EventEmitter {
       this.comboRepo.setStepResult(comboId, i, output);
 
       if (task.status === 'failed') {
-        throw new Error(`Pipeline step ${i} (${step.role ?? step.agent}) failed`);
+        const stderr = task.result?.stderr ?? '';
+        // Extract last meaningful error line from stderr
+        const errorLines = stderr.split('\n').filter(l => l.includes('ERROR') || l.includes('error') || l.includes('failed'));
+        const errorHint = errorLines.length > 0 ? `: ${errorLines[errorLines.length - 1].trim()}` : '';
+        throw new Error(`Pipeline step ${i} (${step.role ?? step.agent}) failed${errorHint}`);
       }
     }
 
