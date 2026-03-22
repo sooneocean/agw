@@ -88,7 +88,7 @@ describe('ComboExecutor', () => {
 
     const comboId = ce.start(request);
     // Wait for async execution
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => ce.once('combo:done', r));
 
     const combo = ce.getCombo(comboId);
     expect(combo).toBeDefined();
@@ -115,7 +115,7 @@ describe('ComboExecutor', () => {
     };
 
     const comboId = ce.start(request);
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => ce.once('combo:done', r));
 
     const combo = ce.getCombo(comboId);
     expect(combo).toBeDefined();
@@ -137,7 +137,7 @@ describe('ComboExecutor', () => {
     };
 
     const comboId = ce.start(request);
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => ce.once('combo:done', r));
 
     const combo = ce.getCombo(comboId);
     expect(combo).toBeDefined();
@@ -200,7 +200,7 @@ describe('ComboExecutor', () => {
       };
 
       const comboId = ce.start(request);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => ce.once('combo:done', r));
 
       const combo = ce.getCombo(comboId);
       expect(combo).toBeDefined();
@@ -229,7 +229,7 @@ describe('ComboExecutor', () => {
       };
 
       const comboId = ce.start(request);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => ce.once('combo:done', r));
 
       const combo = ce.getCombo(comboId);
       expect(combo).toBeDefined();
@@ -276,7 +276,7 @@ describe('ComboExecutor', () => {
       };
 
       const comboId = ce.start(request);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => ce.once('combo:done', r));
 
       const combo = ce.getCombo(comboId);
       expect(combo).toBeDefined();
@@ -353,7 +353,7 @@ describe('ComboExecutor', () => {
       };
 
       const comboId = ce.start(request);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => ce.once('combo:done', r));
 
       const combo = ce.getCombo(comboId);
       expect(combo).toBeDefined();
@@ -398,7 +398,7 @@ describe('ComboExecutor', () => {
       };
 
       const comboId = ce.start(request);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => ce.once('combo:done', r));
 
       const combo = ce.getCombo(comboId);
       expect(combo).toBeDefined();

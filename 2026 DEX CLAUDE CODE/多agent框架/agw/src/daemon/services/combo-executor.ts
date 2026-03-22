@@ -6,6 +6,7 @@ import { AuditRepo } from '../../store/audit-repo.js';
 import type { TaskExecutor } from './task-executor.js';
 import type { AgentManager } from './agent-manager.js';
 import { createLogger } from '../../logger.js';
+import { chunkArray } from '../../utils.js';
 const log = createLogger('combo-executor');
 
 export interface ReviewVerdict {
@@ -57,14 +58,6 @@ export function interpolate(template: string, context: { input: string; prev?: s
       .join('\n\n');
   });
   return result;
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
-  return chunks;
 }
 
 // Built-in presets
@@ -391,7 +384,7 @@ export class ComboExecutor extends EventEmitter {
   /** Debate: debaters run in parallel (each only sees {{input}}), then judge synthesizes all results */
   private async executeDebate(comboId: string, request: CreateComboRequest): Promise<void> {
     const steps = request.steps;
-    if (steps.length < 2) throw new Error('Debate requires at least 2 steps');
+    if (steps.length < 3) throw new Error('Debate requires at least 3 steps (2 debaters + 1 judge)');
 
     const debaterSteps = steps.slice(0, -1);
     const judgeStep = steps[steps.length - 1];
