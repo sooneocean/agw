@@ -226,7 +226,6 @@ export class ComboExecutor extends EventEmitter {
       stepResults[i] = output;
       prev = output;
 
-      this.comboRepo.addTaskId(comboId, task.taskId);
       this.comboRepo.setStepResult(comboId, i, output);
 
       if (task.status === 'failed') {
@@ -250,7 +249,7 @@ export class ComboExecutor extends EventEmitter {
 
     const chunks = chunkArray(mapSteps.map((step, i) => ({ step, i })), concurrency);
 
-    // Process results: retry failures once, then mark as error
+    // Execute map steps — fallback chain in executeStep handles retries per-agent
     const results: MapStepResult[] = [];
     for (const chunk of chunks) {
       if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
@@ -258,8 +257,6 @@ export class ComboExecutor extends EventEmitter {
       const chunkPromises = chunk.map(async ({ step, i }) => {
         const prompt = interpolate(step.prompt, { input: request.input, stepResults });
         const task = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
-        this.comboRepo.addTaskId(comboId, task.taskId);
-        if (task.status === 'failed') throw new Error(`Step ${i} failed: exit code ${task.result?.exitCode}`);
         return { step: i, agent: step.agent, role: step.role, task };
       });
 
@@ -267,30 +264,20 @@ export class ComboExecutor extends EventEmitter {
 
       for (const [chunkIdx, outcome] of settled.entries()) {
         const { step, i } = chunk[chunkIdx];
-        if (outcome.status === 'fulfilled') {
+        if (outcome.status === 'fulfilled' && outcome.value.task.status === 'completed') {
           const output = outcome.value.task.result?.stdout ?? '';
           stepResults[i] = output;
           this.comboRepo.setStepResult(comboId, i, output);
           results.push({ step: i, agentId: step.agent, output });
         } else {
-          // Retry with fallback chain
-          log.warn({ comboId, step: i, agent: step.agent }, 'map step failed, retrying with fallback');
-          try {
-            const prompt = interpolate(step.prompt, { input: request.input, stepResults });
-            const retryTask = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
-            this.comboRepo.addTaskId(comboId, retryTask.taskId);
-            if (retryTask.status === 'failed') throw new Error('Retry also failed');
-            const output = retryTask.result?.stdout ?? '';
-            stepResults[i] = output;
-            this.comboRepo.setStepResult(comboId, i, output);
-            results.push({ step: i, agentId: step.agent, output, retried: true });
-          } catch (retryErr) {
-            log.error({ comboId, step: i, error: (retryErr as Error).message }, 'map step retry failed');
-            const errorMarker = `[ERROR: Step ${i} (${step.role ?? step.agent}) failed after retry: ${(retryErr as Error).message}]`;
-            stepResults[i] = errorMarker;
-            this.comboRepo.setStepResult(comboId, i, errorMarker);
-            results.push({ step: i, agentId: step.agent, error: true, message: (retryErr as Error).message, retried: true });
-          }
+          const errMsg = outcome.status === 'rejected'
+            ? (outcome.reason as Error).message
+            : `exit code ${outcome.value.task.result?.exitCode}`;
+          log.error({ comboId, step: i, agent: step.agent, error: errMsg }, 'map step failed after fallback chain');
+          const errorMarker = `[ERROR: Step ${i} (${step.role ?? step.agent}) failed: ${errMsg}]`;
+          stepResults[i] = errorMarker;
+          this.comboRepo.setStepResult(comboId, i, errorMarker);
+          results.push({ step: i, agentId: step.agent, error: true, message: errMsg });
         }
       }
     }
@@ -317,7 +304,6 @@ export class ComboExecutor extends EventEmitter {
     const finalOutput = reduceTask.result?.stdout ?? '';
 
     stepResults[reduceIdx] = finalOutput;
-    this.comboRepo.addTaskId(comboId, reduceTask.taskId);
     this.comboRepo.setStepResult(comboId, reduceIdx, finalOutput);
     this.comboRepo.setFinalOutput(comboId, finalOutput);
 
@@ -343,7 +329,6 @@ export class ComboExecutor extends EventEmitter {
       const implPrompt = interpolate(implStep.prompt, { input: request.input, prev, stepResults });
       const implTask = await this.executeStep(comboId, implStep.agent, implPrompt, request, implStep.fallbackAgents);
       const implOutput = implTask.result?.stdout ?? '';
-      this.comboRepo.addTaskId(comboId, implTask.taskId);
 
       if (implTask.status === 'failed') {
         throw new Error(`Implementation failed on iteration ${iter + 1}`);
@@ -353,7 +338,6 @@ export class ComboExecutor extends EventEmitter {
       const reviewPrompt = interpolate(reviewStep.prompt, { input: request.input, prev: implOutput, stepResults });
       const reviewTask = await this.executeStep(comboId, reviewStep.agent, reviewPrompt, request, reviewStep.fallbackAgents);
       const reviewOutput = reviewTask.result?.stdout ?? '';
-      this.comboRepo.addTaskId(comboId, reviewTask.taskId);
 
       if (reviewTask.status === 'failed') {
         throw new Error(`Review failed on iteration ${iter + 1}`);
@@ -397,7 +381,6 @@ export class ComboExecutor extends EventEmitter {
       this.auditRepo.log(null, 'combo.step', { comboId, step: i, agent: step.agent, role: step.role, phase: 'debate' });
       const prompt = interpolate(step.prompt, { input: request.input, stepResults: {}, prev: '' });
       const task = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
-      this.comboRepo.addTaskId(comboId, task.taskId);
       return { step: i, task };
     });
 
@@ -425,7 +408,6 @@ export class ComboExecutor extends EventEmitter {
     this.auditRepo.log(null, 'combo.step', { comboId, step: debaterSteps.length, agent: judgeStep.agent, role: judgeStep.role, phase: 'judge' });
     const judgePrompt = interpolate(judgeStep.prompt, { input: request.input, stepResults, prev: '' });
     const judgeTask = await this.executeStep(comboId, judgeStep.agent, judgePrompt, request, judgeStep.fallbackAgents);
-    this.comboRepo.addTaskId(comboId, judgeTask.taskId);
     if (judgeTask.status === 'failed') {
       throw new Error(`Judge step failed: exit code ${judgeTask.result?.exitCode}`);
     }
@@ -435,6 +417,10 @@ export class ComboExecutor extends EventEmitter {
     this.comboRepo.setFinalOutput(comboId, finalOutput);
   }
 
+  private buildTaskRequest(prompt: string, agentId: string, request: CreateComboRequest): CreateTaskRequest {
+    return { prompt, preferredAgent: agentId, workingDirectory: request.workingDirectory, priority: request.priority };
+  }
+
   private async executeStep(
     comboId: string,
     agentId: string,
@@ -442,16 +428,9 @@ export class ComboExecutor extends EventEmitter {
     request: CreateComboRequest,
     fallbackAgents?: string[],
   ) {
-    const taskRequest: CreateTaskRequest = {
-      prompt,
-      preferredAgent: agentId,
-      workingDirectory: request.workingDirectory,
-      priority: request.priority,
-    };
+    const task = await this.taskExecutor.execute(this.buildTaskRequest(prompt, agentId, request));
+    this.comboRepo.addTaskId(comboId, task.taskId);
 
-    const task = await this.taskExecutor.execute(taskRequest);
-
-    // If primary agent succeeded, return immediately
     if (task.status === 'completed') return task;
 
     // Primary agent failed — try fallback chain
@@ -464,10 +443,11 @@ export class ComboExecutor extends EventEmitter {
       comboId, primaryAgent: agentId, failReason, fallbackChain: fallbacks,
     });
 
+    const availableAgents = this.agentManager.getAvailableAgents();
+    const availableIds = new Set(availableAgents.map(a => a.id));
+
     for (const fallbackId of fallbacks) {
-      // Skip if fallback agent is not available
-      const adapter = this.agentManager.getAdapter(fallbackId);
-      if (!adapter) {
+      if (!availableIds.has(fallbackId)) {
         log.warn({ comboId, fallbackAgent: fallbackId }, 'fallback agent not available, skipping');
         continue;
       }
@@ -477,14 +457,7 @@ export class ComboExecutor extends EventEmitter {
         comboId, originalAgent: agentId, fallbackAgent: fallbackId,
       });
 
-      const fallbackRequest: CreateTaskRequest = {
-        prompt,
-        preferredAgent: fallbackId,
-        workingDirectory: request.workingDirectory,
-        priority: request.priority,
-      };
-
-      const fallbackTask = await this.taskExecutor.execute(fallbackRequest);
+      const fallbackTask = await this.taskExecutor.execute(this.buildTaskRequest(prompt, fallbackId, request));
       this.comboRepo.addTaskId(comboId, fallbackTask.taskId);
 
       if (fallbackTask.status === 'completed') {
@@ -498,7 +471,6 @@ export class ComboExecutor extends EventEmitter {
       log.warn({ comboId, fallbackAgent: fallbackId }, 'fallback agent also failed, trying next');
     }
 
-    // All fallbacks exhausted — return original failed task
     log.error({ comboId, agent: agentId, fallbacksTried: fallbacks }, 'all fallback agents failed');
     this.auditRepo.log(null, 'combo.fallback.exhausted', {
       comboId, primaryAgent: agentId, fallbacksTried: fallbacks,
