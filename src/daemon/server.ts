@@ -4,15 +4,10 @@ import { nanoid } from 'nanoid';
 import path from 'node:path';
 import os from 'node:os';
 import { loadConfig } from '../config.js';
-import { createDatabase } from '../store/db.js';
-import { TaskRepo } from '../store/task-repo.js';
-import { AgentRepo } from '../store/agent-repo.js';
-import { AuditRepo } from '../store/audit-repo.js';
-import { CostRepo } from '../store/cost-repo.js';
-import { WorkflowRepo } from '../store/workflow-repo.js';
-import { ComboRepo } from '../store/combo-repo.js';
-import { MemoryRepo } from '../store/memory-repo.js';
-import { NoteRepo } from '../store/note-repo.js';
+import {
+  createDatabase, TaskRepo, AgentRepo, AuditRepo, CostRepo,
+  WorkflowRepo, ComboRepo, MemoryRepo, NoteRepo,
+} from '../store/index.js';
 import { AgentManager } from './services/agent-manager.js';
 import { TaskExecutor } from './services/task-executor.js';
 import { WorkflowExecutor } from './services/workflow-executor.js';
@@ -27,32 +22,22 @@ import { WebhookManager } from './services/webhook-manager.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
 import { registerRateLimiter } from './middleware/rate-limiter.js';
 import { TenantManager, registerTenantMiddleware } from './middleware/tenant.js';
-import { registerAgentRoutes } from './routes/agents.js';
-import { registerTaskRoutes } from './routes/tasks.js';
-import { registerWorkflowRoutes } from './routes/workflows.js';
-import { registerCostRoutes } from './routes/costs.js';
-import { registerComboRoutes } from './routes/combos.js';
-import { registerMemoryRoutes } from './routes/memory.js';
-import { registerHealthRoutes } from './routes/health.js';
-import { registerTemplateRoutes } from './routes/templates.js';
-import { registerWebhookRoutes } from './routes/webhooks.js';
+import {
+  registerAgentRoutes, registerTaskRoutes, registerWorkflowRoutes,
+  registerCostRoutes, registerComboRoutes, registerMemoryRoutes,
+  registerHealthRoutes, registerTemplateRoutes, registerWebhookRoutes,
+  registerSchedulerRoutes, registerReplayRoutes, registerExportImportRoutes,
+  registerCapabilityRoutes, registerBatchRoutes, registerSnapshotRoutes,
+  registerEventRoutes, registerAuditRoutes, registerNoteRoutes,
+  registerPrometheusRoutes, registerMcpTransportRoute,
+} from './routes/index.js';
 import { Scheduler } from './services/scheduler.js';
 import { ReplayManager } from './services/replay.js';
-import { registerSchedulerRoutes } from './routes/scheduler.js';
-import { registerReplayRoutes } from './routes/replay.js';
-import { registerExportImportRoutes } from './routes/export-import.js';
 import { CapabilityDiscovery } from './services/capability-discovery.js';
 import { SnapshotManager } from './services/snapshot.js';
 import { AgentLearning } from './services/agent-learning.js';
+import { wireLifecycleEvents } from './event-wiring.js';
 import { VERSION } from '../version.js';
-import { registerCapabilityRoutes } from './routes/capabilities.js';
-import { registerBatchRoutes } from './routes/batch.js';
-import { registerSnapshotRoutes } from './routes/snapshots.js';
-import { registerEventRoutes } from './routes/events.js';
-import { registerAuditRoutes } from './routes/audit.js';
-import { registerNoteRoutes } from './routes/notes.js';
-import { registerPrometheusRoutes } from './routes/prometheus.js';
-import { registerMcpTransportRoute } from './routes/mcp-transport.js';
 
 interface ServerOptions {
   dbPath?: string;
@@ -174,56 +159,10 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   }, 5 * 60_000);
   healthCheckTimer.unref();
 
-  // Wire task lifecycle events → webhooks, metrics, agent learning
-  const onTaskDone = (taskId: string, result: { exitCode: number; durationMs: number; costEstimate?: number }) => {
-    // Record duration for metrics
-    metrics.recordDuration(result.durationMs);
-
-    // Notify webhooks
-    const task = taskRepo.getById(taskId);
-    const event = result.exitCode === 0 ? 'task.completed' : 'task.failed';
-    webhookManager.emit(event, {
-      taskId,
-      agent: task?.assignedAgent,
-      exitCode: result.exitCode,
-      durationMs: result.durationMs,
-    }).catch(() => {});
-
-    // Record for agent learning
-    if (task?.assignedAgent) {
-      const category = AgentLearning.categorize(task.prompt);
-      agentLearning.record(
-        task.assignedAgent, category,
-        result.exitCode === 0,
-        result.durationMs,
-        result.costEstimate ?? 0,
-      );
-    }
-  };
-  executor.on('task:done', onTaskDone);
-
-  const onTaskStatus = (taskId: string, info: { status: string }) => {
-    if (info.status === 'cancelled') {
-      webhookManager.emit('task.cancelled', { taskId }).catch(() => {});
-    }
-  };
-  executor.on('task:status', onTaskStatus);
-
-  // Wire combo lifecycle events → webhooks
-  const onComboDone = (comboId: string) => {
-    const combo = comboRepo.getById(comboId);
-    if (combo) {
-      const event = combo.status === 'completed' ? 'combo.completed' : 'combo.failed';
-      webhookManager.emit(event, {
-        comboId,
-        name: combo.name,
-        pattern: combo.pattern,
-        status: combo.status,
-        taskCount: combo.taskIds.length,
-      }).catch(() => {});
-    }
-  };
-  comboExecutor.on('combo:done', onComboDone);
+  // Wire task & combo lifecycle events → webhooks, metrics, agent learning
+  const { onTaskDone, onTaskStatus, onComboDone } = wireLifecycleEvents({
+    executor, comboExecutor, webhookManager, metrics, agentLearning, taskRepo, comboRepo,
+  });
 
   // Periodic data cleanup
   const purgeTimer = setInterval(() => {

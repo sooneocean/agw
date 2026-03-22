@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { interpolate } from '../../src/daemon/services/combo-executor.js';
+import { interpolate } from '../../src/daemon/services/combo-utils.js';
 
 describe('Combo interpolation', () => {
   it('replaces {{input}}', () => {

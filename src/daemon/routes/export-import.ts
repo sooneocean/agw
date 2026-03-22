@@ -3,7 +3,7 @@ import type { TemplateEngine } from '../services/template-engine.js';
 import type { WebhookManager } from '../services/webhook-manager.js';
 import type { Scheduler } from '../services/scheduler.js';
 import type { MemoryRepo } from '../../store/memory-repo.js';
-import { COMBO_PRESETS } from '../services/combo-executor.js';
+import { COMBO_PRESETS } from '../services/combo-presets.js';
 import { createExport, validateImport } from '../services/export-import.js';
 import { VERSION } from '../../version.js';
 
