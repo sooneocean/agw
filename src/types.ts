@@ -94,6 +94,7 @@ export type AuditEventType =
   | 'task.timeout'
   | 'task.truncated'
   | 'combo.partial'
+  | 'combo.fallback'
   | 'routing.low_confidence';
 
 // Workflow types

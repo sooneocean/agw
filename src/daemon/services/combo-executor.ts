@@ -383,20 +383,56 @@ export class ComboExecutor extends EventEmitter {
     await this.executePipeline(comboId, request);
   }
 
+  /** Agent fallback order: if primary fails, try next available */
+  private static readonly FALLBACK_ORDER: Record<string, string[]> = {
+    codex: ['claude', 'gemini'],
+    claude: ['codex', 'gemini'],
+    gemini: ['claude', 'codex'],
+  };
+
   private async executeStep(
     comboId: string,
     agentId: string,
     prompt: string,
     request: CreateComboRequest,
   ) {
-    const taskRequest: CreateTaskRequest = {
+    const task = await this.taskExecutor.execute({
       prompt,
       preferredAgent: agentId,
       workingDirectory: request.workingDirectory,
       priority: request.priority,
-    };
+    });
 
-    return this.taskExecutor.execute(taskRequest);
+    // If failed, try fallback agents
+    if (task.status === 'failed') {
+      const stderr = task.result?.stderr ?? '';
+      const isQuotaOrUnavailable = stderr.includes('usage limit') || stderr.includes('rate limit')
+        || stderr.includes('quota') || stderr.includes('not found') || stderr.includes('ENOENT');
+
+      if (isQuotaOrUnavailable) {
+        const fallbacks = ComboExecutor.FALLBACK_ORDER[agentId] ?? [];
+        for (const fallbackAgent of fallbacks) {
+          const adapter = this.agentManager.getAdapter(fallbackAgent);
+          if (!adapter) continue;
+
+          log.warn({ comboId, original: agentId, fallback: fallbackAgent }, 'agent failed, trying fallback');
+          this.auditRepo.log(null, 'combo.fallback', { comboId, original: agentId, fallback: fallbackAgent, reason: stderr.split('\n').pop() });
+
+          const fallbackTask = await this.taskExecutor.execute({
+            prompt,
+            preferredAgent: fallbackAgent,
+            workingDirectory: request.workingDirectory,
+            priority: request.priority,
+          });
+
+          if (fallbackTask.status !== 'failed') {
+            return fallbackTask;
+          }
+        }
+      }
+    }
+
+    return task;
   }
 
   getCombo(comboId: string): ComboDescriptor | undefined {
