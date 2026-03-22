@@ -32,11 +32,11 @@ describe('AgentLearning', () => {
   });
 
   it('categorizes prompts', () => {
-    expect(AgentLearning.categorize('refactor the auth module')).toBe('refactoring');
-    expect(AgentLearning.categorize('fix this crash')).toBe('debugging');
-    expect(AgentLearning.categorize('write unit tests')).toBe('testing');
-    expect(AgentLearning.categorize('deploy to prod')).toBe('devops');
-    expect(AgentLearning.categorize('create a new API')).toBe('implementation');
-    expect(AgentLearning.categorize('hello world')).toBe('general');
+    expect(AgentLearning.categorize('refactor the auth module')).toContain('refactoring');
+    expect(AgentLearning.categorize('fix this crash')).toContain('debugging');
+    expect(AgentLearning.categorize('write unit tests')).toContain('testing');
+    expect(AgentLearning.categorize('deploy to prod')).toContain('devops');
+    expect(AgentLearning.categorize('create a new API')).toContain('implementation');
+    expect(AgentLearning.categorize('hello world')).toEqual(['general']);
   });
 });

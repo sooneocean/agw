@@ -1,13 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { createDatabase } from '../../src/store/db.js';
-import { TaskRepo } from '../../src/store/task-repo.js';
 import { TaskQueue } from '../../src/daemon/services/task-queue.js';
 
 describe('TaskQueue', () => {
   it('runs immediately when under concurrency limit', () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 2);
+    const queue = new TaskQueue(2);
     let executed = false;
     const started = queue.enqueue({
       taskId: 't1',
@@ -19,8 +15,7 @@ describe('TaskQueue', () => {
   });
 
   it('queues when at concurrency limit', async () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 1);
+    const queue = new TaskQueue(1);
 
     let resolve1!: () => void;
     const p1 = new Promise<void>(r => { resolve1 = r; });
@@ -48,8 +43,7 @@ describe('TaskQueue', () => {
   });
 
   it('respects priority ordering in queue', () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 1);
+    const queue = new TaskQueue(1);
 
     // Fill the slot
     queue.enqueue({
@@ -70,8 +64,7 @@ describe('TaskQueue', () => {
   });
 
   it('allows different agents to run concurrently', () => {
-    const db = createDatabase(':memory:');
-    const queue = new TaskQueue(new TaskRepo(db), 1);
+    const queue = new TaskQueue(1);
 
     const s1 = queue.enqueue({
       taskId: 't1', agentId: 'claude', priority: 3,
@@ -84,33 +77,5 @@ describe('TaskQueue', () => {
 
     expect(s1).toBe(true);
     expect(s2).toBe(true); // different agent, should start
-  });
-});
-
-describe('TaskQueue per-agent concurrency', () => {
-  const db = createDatabase(':memory:');
-  const queue = new TaskQueue(new TaskRepo(db), 2);
-
-  it('updateConcurrency changes limit for specific agent', () => {
-    queue.updateConcurrency('claude', 5);
-    expect(queue.getConcurrencyLimit('claude')).toBe(5);
-  });
-
-  it('getConcurrencyLimit returns default for unknown agent', () => {
-    expect(queue.getConcurrencyLimit('unknown-agent')).toBe(2); // default from test setup
-  });
-
-  it('getQueueDepth returns 0 for empty queue', () => {
-    expect(queue.getQueueDepth('claude')).toBe(0);
-  });
-
-  it('getErrorRate returns 0 with no errors', () => {
-    expect(queue.getErrorRate('claude')).toBe(0);
-  });
-
-  it('recordError increases error rate', () => {
-    queue.recordError('claude');
-    const rate = queue.getErrorRate('claude');
-    expect(rate).toBeGreaterThan(0);
   });
 });

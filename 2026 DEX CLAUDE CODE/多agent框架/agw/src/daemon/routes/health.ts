@@ -4,7 +4,11 @@ import type { AgentManager } from '../services/agent-manager.js';
 import type { CircuitBreakerRegistry } from '../services/circuit-breaker.js';
 import type { TaskRepo } from '../../store/task-repo.js';
 import type { CostRepo } from '../../store/cost-repo.js';
+import type { Scheduler } from '../services/scheduler.js';
+import type { WebhookManager } from '../services/webhook-manager.js';
 import type { AppConfig } from '../../types.js';
+import fs from 'node:fs';
+import { VERSION } from '../../version.js';
 
 export function registerHealthRoutes(
   app: FastifyInstance,
@@ -14,9 +18,12 @@ export function registerHealthRoutes(
   taskRepo: TaskRepo,
   costRepo: CostRepo | null,
   config: AppConfig,
+  dbPath?: string,
+  scheduler?: Scheduler,
+  webhookManager?: WebhookManager,
 ): void {
   app.get('/health', async () => {
-    return { status: 'ok', uptime: metrics.getUptime(), version: config.version ?? '1.4.0' };
+    return { status: 'ok', uptime: metrics.getUptime(), version: VERSION };
   });
 
   app.get('/health/ready', async (_request, reply) => {
@@ -51,12 +58,15 @@ export function registerHealthRoutes(
       circuitBreakers: cbRegistry.getAll().map(cb => cb.toJSON()),
       costs: costRepo ? { daily: costRepo.getDailyCost(), monthly: costRepo.getMonthlyCost() } : null,
       performance: perf,
-      memory: { heapMB: Math.round(mem.heapUsed / 1048576), rssMB: Math.round(mem.rss / 1048576) },
+      memory: { heapMB: Math.round(mem.heapUsed / 1_048_576), rssMB: Math.round(mem.rss / 1_048_576) },
       limits: {
         dailyCostLimit: config.dailyCostLimit,
         monthlyCostLimit: config.monthlyCostLimit,
         maxConcurrencyPerAgent: config.maxConcurrencyPerAgent,
       },
+      scheduler: scheduler ? { jobCount: scheduler.listJobs().length, enabledJobs: scheduler.listJobs().filter(j => j.enabled).length } : null,
+      webhooks: webhookManager ? { count: webhookManager.getWebhooks().length } : null,
+      db: dbPath ? { sizeMB: Math.round((fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0) / 1_048_576 * 100) / 100 } : null,
     };
   });
 }

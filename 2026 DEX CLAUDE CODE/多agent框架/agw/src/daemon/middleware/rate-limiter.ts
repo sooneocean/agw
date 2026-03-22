@@ -15,9 +15,24 @@ const DEFAULT_CONFIG: RateLimitConfig = { maxRequests: 60, windowMs: 60_000 };
 export class RateLimiter {
   private buckets = new Map<string, TokenBucket>();
   private config: RateLimitConfig;
+  private static readonly MAX_BUCKETS = 10_000;
 
   constructor(config?: Partial<RateLimitConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  private evictStale(now: number): void {
+    if (this.buckets.size <= RateLimiter.MAX_BUCKETS) return;
+    const expiry = this.config.windowMs * 2;
+    for (const [key, bucket] of this.buckets) {
+      if (now - bucket.lastRefill > expiry) this.buckets.delete(key);
+    }
+    // Hard cap: if still over limit after expiry eviction, remove oldest entries
+    if (this.buckets.size > RateLimiter.MAX_BUCKETS) {
+      const entries = [...this.buckets.entries()].sort((a, b) => a[1].lastRefill - b[1].lastRefill);
+      const toRemove = entries.slice(0, this.buckets.size - RateLimiter.MAX_BUCKETS);
+      for (const [key] of toRemove) this.buckets.delete(key);
+    }
   }
 
   check(clientId: string): { allowed: boolean; remaining: number; resetMs: number } {
@@ -25,6 +40,7 @@ export class RateLimiter {
     let bucket = this.buckets.get(clientId);
 
     if (!bucket) {
+      this.evictStale(now);
       bucket = { tokens: this.config.maxRequests, lastRefill: now };
       this.buckets.set(clientId, bucket);
     }

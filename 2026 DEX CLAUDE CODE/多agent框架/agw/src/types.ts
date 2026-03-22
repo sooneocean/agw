@@ -1,5 +1,5 @@
 // Task types
-export type TaskStatus = 'pending' | 'routing' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'pending' | 'routing' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface TaskResult {
   exitCode: number;
@@ -21,12 +21,15 @@ export interface TaskDescriptor {
   assignedAgent?: string;
   routingReason?: string;
   priority: number;
+  tags?: string[];
+  timeoutMs?: number;
+  pinned?: boolean;
+  dependsOn?: string;
   createdAt: string;
   completedAt?: string;
   result?: TaskResult;
   workflowId?: string;
   stepIndex?: number;
-  timeoutMs?: number;
 }
 
 export interface CreateTaskRequest {
@@ -34,13 +37,12 @@ export interface CreateTaskRequest {
   preferredAgent?: string;
   workingDirectory?: string;
   priority?: number;
+  timeoutMs?: number;
+  tags?: string[];
   workflowId?: string;
   stepIndex?: number;
-  timeoutMs?: number;
+  dependsOn?: string;
 }
-
-// Priority: 1 = lowest, 5 = highest, 3 = default
-export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 
 // Agent types
 export interface AgentDescriptor {
@@ -58,7 +60,6 @@ export interface UnifiedAgent {
   describe(): AgentDescriptor;
   execute(task: TaskDescriptor): Promise<TaskResult>;
   healthCheck(): Promise<boolean>;
-  cancel?(taskId: string): boolean;
   on(event: string, listener: (...args: unknown[]) => void): this;
   removeListener(event: string, listener: (...args: unknown[]) => void): this;
 }
@@ -89,9 +90,10 @@ export type AuditEventType =
   | 'combo.iteration'
   | 'combo.completed'
   | 'combo.failed'
-  | 'combo.partial'
-  | 'task.truncated'
   | 'task.cancelled'
+  | 'task.timeout'
+  | 'task.truncated'
+  | 'combo.partial'
   | 'routing.low_confidence';
 
 // Workflow types
@@ -135,7 +137,6 @@ export interface ComboStep {
   prompt: string;
   /** Role label for this step (e.g., "analyzer", "reviewer", "synthesizer") */
   role?: string;
-  timeoutMs?: number;
 }
 
 export interface ComboDescriptor {
@@ -162,6 +163,8 @@ export interface CreateComboRequest {
   workingDirectory?: string;
   priority?: number;
   maxIterations?: number; // for review-loop, default 3
+  timeoutMs?: number;
+  maxMapConcurrency?: number; // for map-reduce, default 5, max 20
 }
 
 // Built-in combo presets

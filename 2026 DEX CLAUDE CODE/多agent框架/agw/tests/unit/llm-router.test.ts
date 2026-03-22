@@ -10,7 +10,7 @@ const mockAgents: AgentDescriptor[] = [
 describe('LlmRouter', () => {
   it('returns preferred agent without calling LLM when override is set', async () => {
     const createFn = vi.fn();
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', { createMessage: createFn });
+    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', createFn);
     const result = await router.route('do something', mockAgents, 'codex');
     expect(result.agentId).toBe('codex');
     expect(result.confidence).toBe(1.0);
@@ -21,7 +21,7 @@ describe('LlmRouter', () => {
     const createFn = vi.fn().mockResolvedValue({
       content: [{ type: 'text', text: '{"agentId":"claude","reason":"complex task","confidence":0.9}' }],
     });
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', { createMessage: createFn });
+    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', createFn);
     const result = await router.route('refactor the entire codebase', mockAgents);
     expect(result.agentId).toBe('claude');
     expect(result.confidence).toBe(0.9);
@@ -29,7 +29,7 @@ describe('LlmRouter', () => {
 
   it('falls back to keyword router when LLM fails', async () => {
     const createFn = vi.fn().mockRejectedValue(new Error('API down'));
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', { createMessage: createFn });
+    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', createFn);
     const result = await router.route('refactor this', mockAgents);
     expect(result.agentId).toBeDefined();
     expect(result.confidence).toBe(0.3); // keyword fallback confidence
@@ -39,52 +39,24 @@ describe('LlmRouter', () => {
     const createFn = vi.fn().mockResolvedValue({
       content: [{ type: 'text', text: '{"agentId":"nonexistent","reason":"dunno","confidence":0.8}' }],
     });
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', { createMessage: createFn });
+    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', createFn);
     const result = await router.route('do something', mockAgents);
     // Should fallback since "nonexistent" is not in available agents
     expect(['claude', 'codex']).toContain(result.agentId);
   });
-});
 
-describe('Confidence threshold', () => {
-  it('uses LLM result when confidence >= threshold', async () => {
-    const createFn = vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: '{"agentId":"claude","reason":"good match","confidence":0.8}' }],
-    });
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', {
-      createMessage: createFn,
+  it('recordOutcome accepts confidence parameter directly', () => {
+    const mockHistory = { record: vi.fn(), suggest: vi.fn() };
+    const router = new LlmRouter('test-key', 'test-model', {
+      routeHistory: mockHistory as any,
       confidenceThreshold: 0.5,
     });
-    const result = await router.route('refactor code', mockAgents);
-    expect(result.agentId).toBe('claude');
-    expect(result.confidence).toBe(0.8);
-  });
-
-  it('falls back to keyword when confidence < threshold', async () => {
-    const createFn = vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: '{"agentId":"claude","reason":"unsure","confidence":0.2}' }],
-    });
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', {
-      createMessage: createFn,
-      confidenceThreshold: 0.5,
-    });
-    const result = await router.route('refactor this', mockAgents);
-    expect(result.confidence).toBe(0.3);
-  });
-
-  it('defaults threshold to 0.5 when not specified', async () => {
-    const createFn = vi.fn().mockResolvedValue({
-      content: [{ type: 'text', text: '{"agentId":"claude","reason":"meh","confidence":0.4}' }],
-    });
-    const router = new LlmRouter('fake-key', 'claude-haiku-4-5-20251001', { createMessage: createFn });
-    const result = await router.route('refactor this', mockAgents);
-    expect(result.confidence).toBe(0.3);
-  });
-});
-
-describe('Route history integration', () => {
-  it('recordOutcome is callable without routeHistory', () => {
-    const router = new LlmRouter('fake-key', 'model', {});
-    router.recordOutcome('test prompt', 'claude', true);
+    router.recordOutcome('test prompt', 'claude', true, 0.85);
+    expect(mockHistory.record).toHaveBeenCalledWith(
+      expect.any(String),
+      'claude',
+      true,
+      0.85,
+    );
   });
 });

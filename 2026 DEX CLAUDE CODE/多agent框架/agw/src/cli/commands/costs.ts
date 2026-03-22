@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
+import { handleCliError } from '../error-handler.js';
 import type { CostSummary } from '../../types.js';
 
 export function registerCostsCommand(program: Command): void {
@@ -26,8 +27,7 @@ export function registerCostsCommand(program: Command): void {
           }
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 }

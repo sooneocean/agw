@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { HttpClient } from '../http-client.js';
+import { handleCliError } from '../error-handler.js';
 import type { WorkflowDescriptor } from '../../types.js';
 
 export function registerWorkflowCommand(program: Command): void {
@@ -25,8 +26,7 @@ export function registerWorkflowCommand(program: Command): void {
         console.log(`Steps:    ${wf.steps.length} (${wf.mode})`);
         console.log(`Tasks:    ${wf.taskIds.join(', ') || 'none'}`);
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 
@@ -44,8 +44,7 @@ export function registerWorkflowCommand(program: Command): void {
         console.log(`Progress: ${wf.currentStep + 1}/${wf.steps.length}`);
         console.log(`Tasks:    ${wf.taskIds.join(', ') || 'none'}`);
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 
@@ -66,8 +65,7 @@ export function registerWorkflowCommand(program: Command): void {
           console.log(`${w.workflowId}  ${w.status.padEnd(10)} ${w.mode.padEnd(11)} ${w.name}`);
         }
       } catch (err) {
-        console.error(`Error: ${(err as Error).message}`);
-        process.exit(1);
+        handleCliError(err);
       }
     });
 }

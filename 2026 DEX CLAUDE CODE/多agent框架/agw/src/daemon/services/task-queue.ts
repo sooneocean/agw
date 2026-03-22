@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
-import type { TaskRepo } from '../../store/task-repo.js';
-import { createLogger } from '../../logger.js';
 import { PriorityHeap } from './priority-heap.js';
+import { createLogger } from '../../logger.js';
 const log = createLogger('task-queue');
 
 interface QueuedTask {
@@ -17,10 +16,7 @@ export class TaskQueue extends EventEmitter {
   private concurrencyLimits: Map<string, number> = new Map();
   private recentErrors: Map<string, number[]> = new Map();
 
-  constructor(
-    private taskRepo: TaskRepo,
-    private defaultConcurrency: number = 3,
-  ) {
+  constructor(private defaultConcurrency: number = 3) {
     super();
   }
 
@@ -48,7 +44,6 @@ export class TaskQueue extends EventEmitter {
   getQueueDepth(agentId: string): number {
     return this.queue.filter(q => q.agentId === agentId).length;
   }
-
 
   getErrorRate(agentId: string): number {
     const errors = this.recentErrors.get(agentId) ?? [];

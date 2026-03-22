@@ -18,11 +18,11 @@ export class CodexAdapter extends BaseAdapter {
     };
   }
 
-  protected useStdin(): boolean {
+  useStdin(): boolean {
     return true;
   }
 
-  protected buildArgs(_task: TaskDescriptor): string[] {
+  buildArgs(_task: TaskDescriptor): string[] {
     // Prompt is sent via stdin (reads from stdin when prompt arg is "-")
     return ['exec', ...this.extraArgs, '-'];
   }

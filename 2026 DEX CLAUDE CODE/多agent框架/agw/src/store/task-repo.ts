@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { TaskDescriptor, TaskResult, TaskStatus } from '../types.js';
+import { MS_PER_DAY } from '../constants.js';
 
 interface TaskRow {
   task_id: string;
@@ -22,6 +23,10 @@ interface TaskRow {
   completed_at: string | null;
   workflow_id: string | null;
   step_index: number | null;
+  tags: string;
+  timeout_ms: number | null;
+  pinned: number;
+  depends_on: string | null;
 }
 
 function rowToTask(row: TaskRow): TaskDescriptor {
@@ -39,6 +44,10 @@ function rowToTask(row: TaskRow): TaskDescriptor {
   if (row.completed_at) task.completedAt = row.completed_at;
   if (row.workflow_id) task.workflowId = row.workflow_id;
   if (row.step_index !== null) task.stepIndex = row.step_index;
+  if (row.tags && row.tags !== '[]') task.tags = JSON.parse(row.tags);
+  if (row.timeout_ms) task.timeoutMs = row.timeout_ms;
+  if (row.pinned) task.pinned = true;
+  if (row.depends_on) task.dependsOn = row.depends_on;
   if (row.exit_code !== null) {
     task.result = {
       exitCode: row.exit_code,
@@ -57,11 +66,11 @@ function rowToTask(row: TaskRow): TaskDescriptor {
 export class TaskRepo {
   constructor(private db: Database.Database) {}
 
-  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex'>): void {
+  create(task: Pick<TaskDescriptor, 'taskId' | 'prompt' | 'workingDirectory' | 'status' | 'createdAt' | 'preferredAgent' | 'priority' | 'workflowId' | 'stepIndex' | 'tags' | 'timeoutMs' | 'dependsOn'>): void {
     this.db.prepare(
-      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null);
+      `INSERT INTO tasks (task_id, prompt, working_directory, preferred_agent, status, priority, created_at, workflow_id, step_index, tags, timeout_ms, depends_on)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(task.taskId, task.prompt, task.workingDirectory, task.preferredAgent ?? null, task.status, task.priority ?? 3, task.createdAt, task.workflowId ?? null, task.stepIndex ?? null, JSON.stringify(task.tags ?? []), task.timeoutMs ?? null, task.dependsOn ?? null);
   }
 
   listQueued(): TaskDescriptor[] {
@@ -116,6 +125,127 @@ export class TaskRepo {
     return rows.map(rowToTask);
   }
 
+  listByStatus(status: TaskStatus): TaskDescriptor[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC'
+    ).all(status) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  listByTag(tag: string, limit: number = 50): TaskDescriptor[] {
+    const escaped = tag.replace(/[%_]/g, c => `\\${c}`);
+    const rows = this.db.prepare(
+      "SELECT * FROM tasks WHERE tags LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?"
+    ).all(`%"${escaped}"%`, limit) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  search(query: {
+    q?: string;
+    status?: TaskStatus;
+    agent?: string;
+    tag?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+  }): TaskDescriptor[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (query.q) {
+      const escaped = query.q.replace(/[%_]/g, c => `\\${c}`);
+      conditions.push("prompt LIKE ? ESCAPE '\\'");
+      params.push(`%${escaped}%`);
+    }
+    if (query.status) {
+      conditions.push('status = ?');
+      params.push(query.status);
+    }
+    if (query.agent) {
+      conditions.push('assigned_agent = ?');
+      params.push(query.agent);
+    }
+    if (query.tag) {
+      const escaped = query.tag.replace(/[%_]/g, c => `\\${c}`);
+      conditions.push("tags LIKE ? ESCAPE '\\'");
+      params.push(`%"${escaped}"%`);
+    }
+    if (query.since) {
+      conditions.push('created_at >= ?');
+      params.push(query.since);
+    }
+    if (query.until) {
+      conditions.push('created_at <= ?');
+      params.push(query.until);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(query.limit ?? 50, 200);
+    params.push(limit);
+
+    const rows = this.db.prepare(
+      `SELECT * FROM tasks ${where} ORDER BY created_at DESC LIMIT ?`
+    ).all(...params) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  delete(taskId: string): boolean {
+    const result = this.db.prepare('DELETE FROM tasks WHERE task_id = ?').run(taskId);
+    return result.changes > 0;
+  }
+
+  updateTags(taskId: string, tags: string[]): void {
+    this.db.prepare('UPDATE tasks SET tags = ? WHERE task_id = ?').run(JSON.stringify(tags), taskId);
+  }
+
+  updatePriority(taskId: string, priority: number): void {
+    this.db.prepare('UPDATE tasks SET priority = ? WHERE task_id = ?').run(priority, taskId);
+  }
+
+  pin(taskId: string): void {
+    this.db.prepare('UPDATE tasks SET pinned = 1 WHERE task_id = ?').run(taskId);
+  }
+
+  unpin(taskId: string): void {
+    this.db.prepare('UPDATE tasks SET pinned = 0 WHERE task_id = ?').run(taskId);
+  }
+
+  /** Purge completed/failed/cancelled tasks older than N days */
+  purgeOlderThan(days: number): number {
+    const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
+    const result = this.db.prepare(
+      "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND created_at < ? AND (pinned IS NULL OR pinned = 0)"
+    ).run(cutoff);
+    return result.changes;
+  }
+
+  getDependencyStatus(taskId: string): string | undefined {
+    const row = this.db.prepare('SELECT depends_on FROM tasks WHERE task_id = ?').get(taskId) as { depends_on: string | null } | undefined;
+    if (!row?.depends_on) return undefined;
+    const dep = this.db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(row.depends_on) as { status: string } | undefined;
+    return dep?.status;
+  }
+
+  getDurationHistogram(): { bucket: string; count: number }[] {
+    const buckets = [
+      { bucket: '<1s', min: 0, max: 1000 },
+      { bucket: '1-5s', min: 1000, max: 5000 },
+      { bucket: '5-10s', min: 5000, max: 10000 },
+      { bucket: '10-30s', min: 10000, max: 30000 },
+      { bucket: '30-60s', min: 30000, max: 60000 },
+      { bucket: '>60s', min: 60000, max: Infinity },
+    ];
+
+    return buckets.map(({ bucket, min, max }) => {
+      const row = this.db.prepare(
+        max === Infinity
+          ? 'SELECT COUNT(*) as cnt FROM tasks WHERE duration_ms IS NOT NULL AND duration_ms >= ?'
+          : 'SELECT COUNT(*) as cnt FROM tasks WHERE duration_ms IS NOT NULL AND duration_ms >= ? AND duration_ms < ?'
+      ).get(...(max === Infinity ? [min] : [min, max])) as { cnt: number };
+      return { bucket, count: row.cnt };
+    });
+  }
+
   countByStatus(): Record<string, number> {
     const rows = this.db.prepare(
       'SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status'
@@ -123,5 +253,65 @@ export class TaskRepo {
     const result: Record<string, number> = {};
     for (const r of rows) result[r.status] = r.cnt;
     return result;
+  }
+
+  getStats(): {
+    totalTasks: number;
+    byStatus: Record<string, number>;
+    byAgent: Record<string, number>;
+    avgDurationMs: number;
+    totalCostEstimate: number;
+    topTags: { tag: string; count: number }[];
+    recentActivity: { date: string; count: number }[];
+  } {
+    const byStatus = this.countByStatus();
+    const totalTasks = Object.values(byStatus).reduce((a, b) => a + b, 0);
+
+    const agentRows = this.db.prepare(
+      'SELECT assigned_agent, COUNT(*) as cnt FROM tasks WHERE assigned_agent IS NOT NULL GROUP BY assigned_agent'
+    ).all() as { assigned_agent: string; cnt: number }[];
+    const byAgent: Record<string, number> = {};
+    for (const r of agentRows) byAgent[r.assigned_agent] = r.cnt;
+
+    const avgRow = this.db.prepare(
+      'SELECT AVG(duration_ms) as avg FROM tasks WHERE duration_ms IS NOT NULL'
+    ).get() as { avg: number | null };
+
+    const costRow = this.db.prepare(
+      'SELECT COALESCE(SUM(cost_estimate), 0) as total FROM tasks WHERE cost_estimate IS NOT NULL'
+    ).get() as { total: number };
+
+    // Recent 7 days activity
+    const activityRows = this.db.prepare(
+      `SELECT DATE(created_at) as date, COUNT(*) as cnt FROM tasks
+       WHERE created_at >= DATE('now', '-7 days')
+       GROUP BY DATE(created_at) ORDER BY date DESC`
+    ).all() as { date: string; cnt: number }[];
+
+    // Top tags (parse JSON arrays, count occurrences)
+    const allTags = this.db.prepare(
+      "SELECT tags FROM tasks WHERE tags != '[]'"
+    ).all() as { tags: string }[];
+    const tagCounts = new Map<string, number>();
+    for (const row of allTags) {
+      try {
+        const tags = JSON.parse(row.tags) as string[];
+        for (const t of tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+      } catch { /* skip malformed */ }
+    }
+    const topTags = [...tagCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([tag, count]) => ({ tag, count }));
+
+    return {
+      totalTasks,
+      byStatus,
+      byAgent,
+      avgDurationMs: Math.round(avgRow.avg ?? 0),
+      totalCostEstimate: Math.round((costRow.total ?? 0) * 1000) / 1000,
+      topTags,
+      recentActivity: activityRows.map(r => ({ date: r.date, count: r.cnt })),
+    };
   }
 }

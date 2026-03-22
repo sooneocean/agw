@@ -23,7 +23,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TEXT NOT NULL,
   completed_at TEXT,
   workflow_id TEXT,
-  step_index INTEGER
+  step_index INTEGER,
+  tags TEXT NOT NULL DEFAULT '[]',
+  timeout_ms INTEGER,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  depends_on TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -68,6 +72,7 @@ CREATE TABLE IF NOT EXISTS cost_records (
   recorded_at TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_tasks_tags ON tasks(tags);
 CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority DESC, created_at ASC);
@@ -103,9 +108,59 @@ CREATE TABLE IF NOT EXISTS memory (
 
 CREATE INDEX IF NOT EXISTS idx_combos_status ON combos(status);
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory(scope);
+
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  target TEXT NOT NULL,
+  params TEXT,
+  interval TEXT NOT NULL,
+  interval_ms INTEGER NOT NULL,
+  agent TEXT,
+  priority INTEGER,
+  working_directory TEXT,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  last_run TEXT,
+  next_run TEXT NOT NULL,
+  run_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  url TEXT NOT NULL UNIQUE,
+  events TEXT NOT NULL,
+  secret TEXT,
+  headers TEXT,
+  retries INTEGER NOT NULL DEFAULT 2,
+  timeout_ms INTEGER NOT NULL DEFAULT 10000
+);
+
+CREATE TABLE IF NOT EXISTS agent_scores (
+  agent_id TEXT NOT NULL,
+  category TEXT NOT NULL,
+  success_count INTEGER NOT NULL DEFAULT 0,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  avg_duration_ms REAL NOT NULL DEFAULT 0,
+  total_cost REAL NOT NULL DEFAULT 0,
+  score REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (agent_id, category)
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at);
+
+CREATE TABLE IF NOT EXISTS task_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id);
+
 CREATE INDEX IF NOT EXISTS idx_cost_task_id ON cost_records(task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_workflow_id ON tasks(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
+
 CREATE TABLE IF NOT EXISTS route_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   prompt_hash TEXT NOT NULL,

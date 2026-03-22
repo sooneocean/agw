@@ -39,8 +39,9 @@ export class MemoryRepo {
   }
 
   search(query: string): MemoryEntry[] {
+    const escaped = query.replace(/[%_]/g, c => `\\${c}`);
     return this.db.prepare(
-      'SELECT * FROM memory WHERE key LIKE ? OR value LIKE ? ORDER BY updated_at DESC LIMIT 20'
-    ).all(`%${query}%`, `%${query}%`) as MemoryEntry[];
+      "SELECT * FROM memory WHERE key LIKE ? ESCAPE '\\' OR value LIKE ? ESCAPE '\\' ORDER BY updated_at DESC LIMIT 20"
+    ).all(`%${escaped}%`, `%${escaped}%`) as MemoryEntry[];
   }
 }

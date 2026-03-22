@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { WorkflowExecutor } from '../services/workflow-executor.js';
 import type { AppConfig } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
+import { parsePagination } from '../middleware/pagination.js';
 
 export function registerWorkflowRoutes(
   app: FastifyInstance,
@@ -66,8 +67,7 @@ export function registerWorkflowRoutes(
   });
 
   app.get<{ Querystring: { limit?: string; offset?: string } }>('/workflows', async (request) => {
-    const limit = parseInt(request.query.limit ?? '20', 10);
-    const offset = parseInt(request.query.offset ?? '0', 10);
+    const { limit, offset } = parsePagination(request.query);
     return workflowExecutor.listWorkflows(limit, offset);
   });
 }

@@ -2,33 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/**]
   pull_request:
     branches: [main]
 
 jobs:
   test:
+    name: Test & Type Check
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22]
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
+          node-version: '20'
+          cache: 'npm'
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-      - name: TypeScript check
+      - name: Type check
         run: npx tsc --noEmit
 
       - name: Run tests
-        run: npx vitest run
+        run: npm run test:coverage
 
-      - name: Test summary
+      - name: Upload coverage
         if: always()
-        run: echo "Tests completed"
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Scheduler, parseInterval } from '../../src/daemon/services/scheduler.js';
 
 describe('Scheduler', () => {
@@ -11,6 +11,7 @@ describe('Scheduler', () => {
   it('parses interval expressions', () => {
     expect(parseInterval('every 5m')).toBe(300_000);
     expect(parseInterval('every 1h')).toBe(3_600_000);
+    expect(parseInterval('every 10s')).toBe(10_000);
     expect(parseInterval('every 30s')).toBe(30_000);
     expect(parseInterval('every 2d')).toBe(172_800_000);
   });
@@ -18,6 +19,8 @@ describe('Scheduler', () => {
   it('rejects invalid intervals', () => {
     expect(() => parseInterval('bad')).toThrow();
     expect(() => parseInterval('every 5x')).toThrow();
+    expect(() => parseInterval('every 0m')).toThrow();
+    expect(() => parseInterval('every 5s')).toThrow(); // below 10s minimum
   });
 
   it('adds and lists jobs', () => {
@@ -48,11 +51,13 @@ describe('Scheduler', () => {
   });
 
   it('emits trigger events', async () => {
+    vi.useFakeTimers();
     scheduler = new Scheduler();
     let triggered = false;
     scheduler.on('job:trigger', () => { triggered = true; });
-    scheduler.addJob({ name: 'Fast', type: 'task', target: 'x', interval: 'every 1s', enabled: true });
-    await new Promise(r => setTimeout(r, 1500));
+    scheduler.addJob({ name: 'Fast', type: 'task', target: 'x', interval: 'every 10s', enabled: true });
+    vi.advanceTimersByTime(11_000);
     expect(triggered).toBe(true);
+    vi.useRealTimers();
   });
 });

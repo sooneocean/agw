@@ -18,11 +18,11 @@ export class ClaudeAdapter extends BaseAdapter {
     };
   }
 
-  protected useStdin(): boolean {
+  useStdin(): boolean {
     return true;
   }
 
-  protected buildArgs(_task: TaskDescriptor): string[] {
+  buildArgs(_task: TaskDescriptor): string[] {
     // Prompt is sent via stdin, not argv (prevents ps/argv leakage)
     return ['--print', '--output-format', 'json', ...this.extraArgs, '-'];
   }

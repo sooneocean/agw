@@ -51,18 +51,23 @@ export function loadConfig(configPath: string): AppConfig {
     fileConfig.authToken ??
     undefined;
 
+  const clamp = (val: number | undefined, def: number, min: number, max: number) => {
+    const v = val ?? def;
+    return Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : def;
+  };
+
   return {
-    port,
+    port: clamp(port, DEFAULTS.port, 1, 65535),
     anthropicApiKey,
     authToken,
     routerModel: fileConfig.routerModel ?? DEFAULTS.routerModel,
-    defaultTimeout: fileConfig.defaultTimeout ?? DEFAULTS.defaultTimeout,
-    maxConcurrencyPerAgent: fileConfig.maxConcurrencyPerAgent ?? DEFAULTS.maxConcurrencyPerAgent,
+    defaultTimeout: clamp(fileConfig.defaultTimeout, DEFAULTS.defaultTimeout, 1000, 3_600_000),
+    maxConcurrencyPerAgent: clamp(fileConfig.maxConcurrencyPerAgent, DEFAULTS.maxConcurrencyPerAgent, 1, 50),
     dailyCostLimit: fileConfig.dailyCostLimit,
     monthlyCostLimit: fileConfig.monthlyCostLimit,
     allowedWorkspaces: fileConfig.allowedWorkspaces,
-    maxPromptLength: fileConfig.maxPromptLength ?? DEFAULTS.maxPromptLength,
-    maxWorkflowSteps: fileConfig.maxWorkflowSteps ?? DEFAULTS.maxWorkflowSteps,
+    maxPromptLength: clamp(fileConfig.maxPromptLength, DEFAULTS.maxPromptLength, 100, 1_000_000),
+    maxWorkflowSteps: clamp(fileConfig.maxWorkflowSteps, DEFAULTS.maxWorkflowSteps, 1, 100),
     agents,
   };
 }

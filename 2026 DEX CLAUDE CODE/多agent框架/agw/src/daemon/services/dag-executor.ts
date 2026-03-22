@@ -77,7 +77,8 @@ export class DagExecutor extends EventEmitter {
         })
       );
 
-      for (const r of results) {
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
         if (r.status === 'fulfilled') {
           const { nodeId, stdout, exitCode, durationMs } = r.value;
           nodeResults[nodeId] = { output: stdout, exitCode, durationMs };
@@ -87,8 +88,7 @@ export class DagExecutor extends EventEmitter {
           else failed.add(nodeId);
           this.emit('dag:node:done', dagId, nodeId, exitCode);
         } else {
-          // Should not happen since executeFn catches errors, but handle anyway
-          const nodeId = ready[results.indexOf(r)].id;
+          const nodeId = ready[i].id;
           nodeResults[nodeId] = { output: r.reason?.message ?? 'Unknown error', exitCode: 1, durationMs: 0 };
           pending.delete(nodeId);
           failed.add(nodeId);

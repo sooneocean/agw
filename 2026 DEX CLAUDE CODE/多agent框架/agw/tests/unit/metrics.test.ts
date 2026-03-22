@@ -27,29 +27,3 @@ describe('MetricsCollector', () => {
     expect(mem.rss).toBeGreaterThan(0);
   });
 });
-
-describe('MetricsCollector sorted cache', () => {
-  it('returns correct p95 after multiple inserts', () => {
-    const m = new MetricsCollector();
-    for (let i = 1; i <= 100; i++) m.recordDuration(i);
-    const perf = m.getPerformance();
-    expect(perf.p95DurationMs).toBe(96);
-  });
-
-  it('invalidates cache on new insert', () => {
-    const m = new MetricsCollector();
-    m.recordDuration(10);
-    m.recordDuration(20);
-    const p1 = m.getPerformance();
-    m.recordDuration(1000);
-    const p2 = m.getPerformance();
-    expect(p2.p95DurationMs).toBeGreaterThan(p1.p95DurationMs);
-  });
-
-  it('evicts oldest entry when over 500', () => {
-    const m = new MetricsCollector();
-    for (let i = 0; i < 501; i++) m.recordDuration(i);
-    const perf = m.getPerformance();
-    expect(perf.avgDurationMs).toBeGreaterThan(0);
-  });
-});

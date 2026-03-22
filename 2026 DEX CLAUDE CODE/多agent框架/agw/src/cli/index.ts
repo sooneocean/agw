@@ -7,14 +7,26 @@ import { registerDaemonCommand } from './commands/daemon.js';
 import { registerCostsCommand } from './commands/costs.js';
 import { registerWorkflowCommand } from './commands/workflow.js';
 import { registerComboCommand } from './commands/combo.js';
+import { registerDashboardCommand } from './commands/dashboard.js';
 import { registerCancelCommand } from './commands/cancel.js';
+import { registerSearchCommand } from './commands/search.js';
+import { registerStatsCommand } from './commands/stats.js';
+import { registerEventsCommand } from './commands/events.js';
+import { registerConfigCommand } from './commands/config.js';
+import { registerWatchCommand } from './commands/watch.js';
+import { registerQueueCommand } from './commands/queue.js';
+import { registerVersionCheckCommand } from './commands/version-check.js';
+import { registerTaskActionsCli } from './commands/task-actions-cli.js';
+import { registerTemplateCli } from './commands/template-cli.js';
+import { registerInfoCommand } from './commands/info.js';
+import { VERSION } from '../version.js';
 
 export function createCli(): Command {
   const program = new Command();
   program
     .name('agw')
     .description('Agent Gateway — route tasks to the best AI agent')
-    .version('0.3.0');
+    .version(VERSION);
 
   registerRunCommand(program);
   registerStatusCommand(program);
@@ -24,7 +36,18 @@ export function createCli(): Command {
   registerCostsCommand(program);
   registerWorkflowCommand(program);
   registerComboCommand(program);
+  registerDashboardCommand(program);
   registerCancelCommand(program);
+  registerSearchCommand(program);
+  registerStatsCommand(program);
+  registerEventsCommand(program);
+  registerConfigCommand(program);
+  registerWatchCommand(program);
+  registerQueueCommand(program);
+  registerVersionCheckCommand(program);
+  registerTaskActionsCli(program);
+  registerTemplateCli(program);
+  registerInfoCommand(program);
 
   return program;
 }

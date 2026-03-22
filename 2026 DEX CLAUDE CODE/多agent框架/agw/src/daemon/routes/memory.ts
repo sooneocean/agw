@@ -17,6 +17,26 @@ export function registerMemoryRoutes(app: FastifyInstance, memoryRepo: MemoryRep
 
   app.put<{ Params: { key: string }; Body: { value: string; scope?: string } }>(
     '/memory/:key',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['value'],
+          properties: {
+            value: { type: 'string', maxLength: 100000 },
+            scope: { type: 'string', maxLength: 100, default: 'global' },
+          },
+          additionalProperties: false,
+        },
+        params: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', minLength: 1, maxLength: 500 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
     async (request) => {
       const { value, scope } = request.body;
       memoryRepo.set(request.params.key, value, scope);

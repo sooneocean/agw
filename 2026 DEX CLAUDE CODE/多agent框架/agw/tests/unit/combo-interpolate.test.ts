@@ -1,22 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-// Test the interpolation logic directly
-function interpolate(template: string, context: { input: string; prev?: string; stepResults: Record<number, string> }): string {
-  let result = template.replace(/\{\{input\}\}/g, context.input);
-  if (context.prev !== undefined) {
-    result = result.replace(/\{\{prev\}\}/g, context.prev);
-  }
-  result = result.replace(/\{\{step\.(\d+)\}\}/g, (_match, idx) => {
-    return context.stepResults[parseInt(idx, 10)] ?? `[step ${idx} not yet available]`;
-  });
-  result = result.replace(/\{\{all\}\}/g, () => {
-    return Object.entries(context.stepResults)
-      .sort(([a], [b]) => parseInt(a) - parseInt(b))
-      .map(([idx, out]) => `--- Step ${idx} ---\n${out}`)
-      .join('\n\n');
-  });
-  return result;
-}
+import { interpolate } from '../../src/daemon/services/combo-executor.js';
 
 describe('Combo interpolation', () => {
   it('replaces {{input}}', () => {

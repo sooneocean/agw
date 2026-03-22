@@ -2,8 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import type { TaskExecutor } from '../services/task-executor.js';
 import type { LlmRouter } from '../../router/llm-router.js';
 import type { AgentManager } from '../services/agent-manager.js';
-import type { AppConfig } from '../../types.js';
+import type { AgentLearning } from '../services/agent-learning.js';
+import type { AppConfig, TaskStatus } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
+import { parsePagination } from '../middleware/pagination.js';
+
+const SSE_IDLE_TIMEOUT_MS = 300_000;
 
 export function registerTaskRoutes(
   app: FastifyInstance,
@@ -11,6 +15,7 @@ export function registerTaskRoutes(
   router: LlmRouter,
   agentManager: AgentManager,
   config: AppConfig,
+  agentLearning?: AgentLearning,
 ): void {
   const createTaskSchema = {
     body: {
@@ -21,16 +26,19 @@ export function registerTaskRoutes(
         preferredAgent: { type: 'string' },
         workingDirectory: { type: 'string' },
         priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
+        timeoutMs: { type: 'integer', minimum: 1000, maximum: 3600000 },
+        tags: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 10 },
+        dependsOn: { type: 'string' },
       },
       additionalProperties: false,
     },
   };
 
-  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number } }>(
+  app.post<{ Body: { prompt: string; preferredAgent?: string; workingDirectory?: string; priority?: number; timeoutMs?: number; tags?: string[]; dependsOn?: string } }>(
     '/tasks',
     { schema: createTaskSchema },
     async (request, reply) => {
-      const { prompt, preferredAgent, priority } = request.body;
+      const { prompt, preferredAgent, priority, timeoutMs, tags, dependsOn } = request.body;
 
       // Validate workspace (H2: path traversal protection)
       let workingDirectory: string;
@@ -45,11 +53,21 @@ export function registerTaskRoutes(
         return reply.status(503).send({ error: 'No agents available. Check CLI installations.' });
       }
 
+      // Check agent learning for a recommendation
+      let learnedAgent: string | undefined;
+      if (!preferredAgent && agentLearning) {
+        const categories = (await import('../services/agent-learning.js')).AgentLearning.categorize(prompt);
+        const best = agentLearning.getBestAgent(categories);
+        if (best && availableAgents.some(a => a.id === best)) {
+          learnedAgent = best;
+        }
+      }
+
       let lowConfidence = false;
       const task = await executor.execute(
-        { prompt, preferredAgent, workingDirectory, priority },
+        { prompt, preferredAgent: preferredAgent ?? learnedAgent, workingDirectory, priority, timeoutMs, tags, dependsOn },
         async (p) => {
-          const decision = await router.route(p, availableAgents, preferredAgent);
+          const decision = await router.route(p, availableAgents, preferredAgent ?? learnedAgent);
           if (decision.confidence < 0.5) lowConfidence = true;
           return decision;
         },
@@ -97,7 +115,11 @@ export function registerTaskRoutes(
     });
 
     const sendEvent = (event: string, data: unknown) => {
-      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      try {
+        if (!reply.raw.destroyed) {
+          reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        }
+      } catch { /* stream closed */ }
     };
 
     // Idle timeout — close stream if no events after 5 minutes
@@ -105,7 +127,7 @@ export function registerTaskRoutes(
       sendEvent('timeout', { reason: 'idle timeout' });
       cleanup();
       reply.raw.end();
-    }, 300_000);
+    }, SSE_IDLE_TIMEOUT_MS);
 
     const resetIdle = () => {
       clearTimeout(idleTimer);
@@ -113,7 +135,7 @@ export function registerTaskRoutes(
         sendEvent('timeout', { reason: 'idle timeout' });
         cleanup();
         reply.raw.end();
-      }, 300_000);
+      }, SSE_IDLE_TIMEOUT_MS);
     };
 
     const onStatus = (id: string, info: unknown) => {
@@ -132,11 +154,6 @@ export function registerTaskRoutes(
         reply.raw.end();
       }
     };
-    const onTruncated = (tid: string, stream: string, bytes: number) => {
-      if (tid === taskId) {
-        reply.raw.write(`event: truncated\ndata: ${JSON.stringify({ stream, bytes })}\n\n`);
-      }
-    };
 
     const cleanup = () => {
       clearTimeout(idleTimer);
@@ -144,31 +161,146 @@ export function registerTaskRoutes(
       executor.removeListener('task:stdout', onStdout);
       executor.removeListener('task:stderr', onStderr);
       executor.removeListener('task:done', onDone);
-      executor.removeListener('task:truncated', onTruncated);
     };
 
     executor.on('task:status', onStatus);
     executor.on('task:stdout', onStdout);
     executor.on('task:stderr', onStderr);
     executor.on('task:done', onDone);
-    executor.on('task:truncated', onTruncated);
 
     request.raw.on('close', cleanup);
   });
 
-  app.get<{ Querystring: { limit?: string; offset?: string } }>('/tasks', async (request) => {
-    const limit = parseInt(request.query.limit ?? '20', 10);
-    const offset = parseInt(request.query.offset ?? '0', 10);
-    return executor.listTasks(limit, offset);
+  // Cancel a running task
+  app.post<{ Params: { id: string } }>('/tasks/:id/cancel', async (request, reply) => {
+    const cancelled = executor.cancelTask(request.params.id);
+    if (!cancelled) {
+      return reply.status(400).send({ error: 'Task cannot be cancelled (not running/pending)' });
+    }
+    return { cancelled: true, taskId: request.params.id };
   });
 
-  app.delete<{ Params: { taskId: string } }>('/tasks/:taskId', async (req, reply) => {
-    const { taskId } = req.params;
-    const task = executor.getTask(taskId);
+  // Retry a failed/cancelled task
+  app.post<{ Params: { id: string } }>('/tasks/:id/retry', async (request, reply) => {
+    const original = executor.getTask(request.params.id);
+    if (!original) return reply.status(404).send({ error: 'Task not found' });
+    if (original.status !== 'failed' && original.status !== 'cancelled') {
+      return reply.status(400).send({ error: 'Only failed/cancelled tasks can be retried' });
+    }
+
+    const availableAgents = agentManager.getAvailableAgents();
+    const retried = await executor.execute(
+      {
+        prompt: original.prompt,
+        preferredAgent: original.assignedAgent,
+        workingDirectory: original.workingDirectory,
+        priority: original.priority,
+        tags: original.tags,
+        timeoutMs: original.timeoutMs,
+      },
+      async (p) => router.route(p, availableAgents, original.assignedAgent),
+    );
+
+    return reply.status(201).send(retried);
+  });
+
+  // Delete a task (only completed/failed/cancelled)
+  app.delete<{ Params: { id: string } }>('/tasks/:id', async (request, reply) => {
+    const task = executor.getTask(request.params.id);
     if (!task) return reply.status(404).send({ error: 'Task not found' });
-    if (task.status !== 'running') return reply.status(409).send({ error: `Task is ${task.status}, not running` });
-    const cancelled = executor.cancel(taskId);
-    if (!cancelled) return reply.status(500).send({ error: 'Failed to cancel task' });
-    return reply.status(204).send();
+    if (task.status === 'running' || task.status === 'routing') {
+      return reply.status(400).send({ error: 'Cannot delete a running task. Cancel it first.' });
+    }
+    const deleted = executor.deleteTask(request.params.id);
+    if (!deleted) return reply.status(404).send({ error: 'Task not found' });
+    return { deleted: true, taskId: request.params.id };
+  });
+
+  // Patch task metadata (tags, priority)
+  app.patch<{ Params: { id: string }; Body: { tags?: string[]; priority?: number } }>('/tasks/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          tags: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 10 },
+          priority: { type: 'integer', minimum: 1, maximum: 5 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    executor.updateTaskMeta(request.params.id, request.body);
+    return executor.getTask(request.params.id);
+  });
+
+  app.post<{ Params: { id: string } }>('/tasks/:id/pin', async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    executor.pinTask(request.params.id);
+    return { pinned: true, taskId: request.params.id };
+  });
+
+  app.post<{ Params: { id: string } }>('/tasks/:id/unpin', async (request, reply) => {
+    const task = executor.getTask(request.params.id);
+    if (!task) return reply.status(404).send({ error: 'Task not found' });
+    executor.unpinTask(request.params.id);
+    return { pinned: false, taskId: request.params.id };
+  });
+
+  // Queue visibility
+  app.get('/tasks/queue', async () => {
+    return executor.getQueueInfo();
+  });
+
+  // Task export
+  app.get<{ Querystring: { format?: string; limit?: string } }>('/tasks/export', async (request, reply) => {
+    const limit = Math.min(parseInt(request.query.limit ?? '100', 10) || 100, 1000);
+    const tasks = executor.listTasks(limit, 0);
+
+    if (request.query.format === 'csv') {
+      const header = 'taskId,status,agent,priority,prompt,createdAt,durationMs,exitCode';
+      const rows = tasks.map(t => [
+        t.taskId, t.status, t.assignedAgent ?? '', t.priority,
+        `"${(t.prompt ?? '').replace(/"/g, '""').slice(0, 200)}"`,
+        t.createdAt, t.result?.durationMs ?? '', t.result?.exitCode ?? '',
+      ].join(','));
+      reply.header('Content-Type', 'text/csv');
+      reply.header('Content-Disposition', 'attachment; filename=agw-tasks.csv');
+      return [header, ...rows].join('\n');
+    }
+
+    return tasks;
+  });
+
+  // Task duration histogram
+  app.get('/tasks/histogram', async () => {
+    return executor.getDurationHistogram();
+  });
+
+  // Task statistics
+  app.get('/tasks/stats', async () => {
+    return executor.getTaskStats();
+  });
+
+  // Search tasks with multi-field query
+  app.get<{ Querystring: { q?: string; status?: string; agent?: string; tag?: string; since?: string; until?: string; limit?: string; offset?: string } }>(
+    '/tasks/search',
+    async (request) => {
+      const { q, status, agent, tag, since, until, limit } = request.query;
+      return executor.searchTasks({
+        q, status: status as TaskStatus | undefined, agent, tag, since, until,
+        limit: Math.min(parseInt(limit ?? '50', 10) || 50, 200),
+      });
+    },
+  );
+
+  app.get<{ Querystring: { limit?: string; offset?: string; tag?: string } }>('/tasks', async (request) => {
+    const { limit, offset } = parsePagination(request.query);
+    if (request.query.tag) {
+      return executor.listTasksByTag(request.query.tag, limit);
+    }
+    return executor.listTasks(limit, offset);
   });
 }

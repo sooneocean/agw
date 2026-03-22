@@ -13,9 +13,10 @@ const log = createLogger('task-executor');
 
 export class TaskExecutor extends EventEmitter {
   private taskQueue: TaskQueue;
-  private costRepo: CostRepo;
+  private costRepo: CostRepo | null;
   private dailyCostLimit?: number;
   private monthlyCostLimit?: number;
+  private activeAbortControllers = new Map<string, AbortController>();
 
   constructor(
     private taskRepo: TaskRepo,
@@ -27,38 +28,47 @@ export class TaskExecutor extends EventEmitter {
     monthlyCostLimit?: number,
     db?: Database.Database,
     private autoScaler?: AutoScaler,
-    private onTaskComplete?: (prompt: string, agentId: string, success: boolean) => void,
+    private onTaskComplete?: (prompt: string, agentId: string, success: boolean, confidence: number) => void,
   ) {
     super();
-    this.costRepo = costRepo ?? (db ? new CostRepo(db) : null) as CostRepo;
+    this.costRepo = costRepo ?? (db ? new CostRepo(db) : null);
     this.dailyCostLimit = dailyCostLimit;
     this.monthlyCostLimit = monthlyCostLimit;
-    this.taskQueue = new TaskQueue(taskRepo, maxConcurrencyPerAgent);
+    this.taskQueue = new TaskQueue(maxConcurrencyPerAgent);
 
     this.taskQueue.on('queued', (taskId: string) => {
       this.auditRepo.log(taskId, 'task.queued', { reason: 'concurrency limit' });
     });
   }
 
+  private checkQuota(): void {
+    if (!this.costRepo) return;
+    if (this.dailyCostLimit) {
+      const daily = this.costRepo.getDailyCost();
+      if (daily >= this.dailyCostLimit) {
+        this.auditRepo.log(null, 'cost.quota_exceeded', { type: 'daily', current: daily, limit: this.dailyCostLimit });
+        throw new Error(`Daily cost limit exceeded ($${daily.toFixed(2)} / $${this.dailyCostLimit.toFixed(2)})`);
+      }
+    }
+    if (this.monthlyCostLimit) {
+      const monthly = this.costRepo.getMonthlyCost();
+      if (monthly >= this.monthlyCostLimit) {
+        this.auditRepo.log(null, 'cost.quota_exceeded', { type: 'monthly', current: monthly, limit: this.monthlyCostLimit });
+        throw new Error(`Monthly cost limit exceeded ($${monthly.toFixed(2)} / $${this.monthlyCostLimit.toFixed(2)})`);
+      }
+    }
+  }
+
   async execute(request: CreateTaskRequest, routeFn?: (prompt: string) => Promise<{ agentId: string; reason: string; confidence: number }>): Promise<TaskDescriptor> {
+    this.checkQuota();
+
     const taskId = nanoid(12);
     const workingDirectory = request.workingDirectory ?? process.cwd();
     const createdAt = new Date().toISOString();
     const priority = request.priority ?? 3;
 
-    // Reserve quota atomically (replaces old checkQuota)
-    if (this.costRepo && (this.dailyCostLimit || this.monthlyCostLimit)) {
-      const reserved = this.costRepo.reserveQuota(
-        taskId,
-        request.preferredAgent ?? 'claude',
-        this.dailyCostLimit ?? Infinity,
-        this.monthlyCostLimit ?? Infinity,
-      );
-      if (!reserved) {
-        this.auditRepo.log(taskId, 'cost.quota_exceeded', { type: 'reservation' });
-        throw new Error('Cost quota exceeded (reservation failed)');
-      }
-    }
+    const timeoutMs = request.timeoutMs;
+    const tags = request.tags;
 
     // Create task
     this.taskRepo.create({
@@ -71,9 +81,41 @@ export class TaskExecutor extends EventEmitter {
       preferredAgent: request.preferredAgent,
       workflowId: request.workflowId,
       stepIndex: request.stepIndex,
+      tags,
+      timeoutMs,
+      dependsOn: request.dependsOn,
     });
     this.auditRepo.log(taskId, 'task.created', { prompt: request.prompt, priority });
     this.emit('task:status', taskId, { status: 'pending' });
+
+    // Wait for dependency if specified
+    if (request.dependsOn) {
+      const depTask = this.taskRepo.getById(request.dependsOn);
+      if (!depTask) throw new Error(`Dependency task ${request.dependsOn} not found`);
+
+      if (depTask.status !== 'completed' && depTask.status !== 'failed' && depTask.status !== 'cancelled') {
+        this.auditRepo.log(taskId, 'task.queued', { reason: 'waiting for dependency', dependsOn: request.dependsOn });
+        const maxWaitMs = request.timeoutMs ?? 300_000; // default 5 min max wait
+        const startedAt = Date.now();
+        await new Promise<void>((resolve, reject) => {
+          const check = () => {
+            if (Date.now() - startedAt > maxWaitMs) {
+              reject(new Error(`Dependency wait timeout after ${maxWaitMs}ms`));
+              return;
+            }
+            const dep = this.taskRepo.getById(request.dependsOn!);
+            if (!dep) { reject(new Error('Dependency task disappeared')); return; }
+            if (dep.status === 'completed') { resolve(); return; }
+            if (dep.status === 'failed' || dep.status === 'cancelled') {
+              reject(new Error(`Dependency task ${request.dependsOn} ${dep.status}`));
+              return;
+            }
+            setTimeout(check, 1000);
+          };
+          check();
+        });
+      }
+    }
 
     // Route
     this.taskRepo.updateStatus(taskId, 'routing');
@@ -81,6 +123,7 @@ export class TaskExecutor extends EventEmitter {
 
     let agentId: string;
     let routingReason: string;
+    let routeConfidence = 1.0;
 
     if (request.preferredAgent) {
       agentId = request.preferredAgent;
@@ -89,6 +132,7 @@ export class TaskExecutor extends EventEmitter {
       const decision = await routeFn(request.prompt);
       agentId = decision.agentId;
       routingReason = decision.reason;
+      routeConfidence = decision.confidence;
     } else {
       throw new Error('No routing function provided and no preferred agent');
     }
@@ -111,16 +155,29 @@ export class TaskExecutor extends EventEmitter {
       this.emit('task:status', taskId, { status: 'running', agentId, reason: routingReason });
       const onStdout = (...args: unknown[]) => this.emit('task:stdout', taskId, String(args[0]));
       const onStderr = (...args: unknown[]) => this.emit('task:stderr', taskId, String(args[0]));
-      adapter.on('stdout', onStdout);
-      adapter.on('stderr', onStderr);
       const onTruncated = (...args: unknown[]) => {
-        const stream = args[0] as string;
-        const bytes = args[1] as number;
+        const stream = String(args[0]);
+        const bytes = Number(args[1]);
         log.warn({ taskId, stream, bytes }, 'output truncated');
         this.auditRepo.log(taskId, 'task.truncated', { stream, bytes });
         this.emit('task:truncated', taskId, stream, bytes);
       };
+      adapter.on('stdout', onStdout);
+      adapter.on('stderr', onStderr);
       adapter.on('truncated', onTruncated);
+
+      // Set up abort controller for cancellation
+      const ac = new AbortController();
+      this.activeAbortControllers.set(taskId, ac);
+
+      // Set up timeout if configured
+      let timeoutTimer: NodeJS.Timeout | undefined;
+      if (timeoutMs && timeoutMs > 0) {
+        timeoutTimer = setTimeout(() => {
+          ac.abort();
+          this.auditRepo.log(taskId, 'task.timeout', { timeoutMs });
+        }, timeoutMs);
+      }
 
       const task: TaskDescriptor = {
         taskId,
@@ -130,28 +187,34 @@ export class TaskExecutor extends EventEmitter {
         priority,
         assignedAgent: agentId,
         createdAt,
-        timeoutMs: request.timeoutMs,
+        tags,
+        timeoutMs,
       };
 
       try {
-        const result = await adapter.execute(task);
+        const resultPromise = adapter.execute(task);
+
+        // Race between execution and abort
+        const result = await new Promise<Awaited<typeof resultPromise>>((resolve, reject) => {
+          const onAbort = () => reject(new Error(ac.signal.reason ?? 'Task cancelled'));
+          if (ac.signal.aborted) { onAbort(); return; }
+          ac.signal.addEventListener('abort', onAbort, { once: true });
+          resultPromise.then(resolve, reject);
+        });
+
         const finalStatus = result.exitCode === 0 ? 'completed' : 'failed';
         this.taskRepo.updateResult(taskId, result);
         this.taskRepo.updateStatus(taskId, finalStatus);
         const eventType = result.exitCode === 0 ? 'task.completed' : 'task.failed';
         this.auditRepo.log(taskId, eventType, { exitCode: result.exitCode, durationMs: result.durationMs });
 
-        if (this.costRepo) {
-          if (result.costEstimate) {
-            this.costRepo.finalizeQuota(taskId, result.costEstimate, result.tokenEstimate ?? 0);
-          } else {
-            this.costRepo.finalizeQuota(taskId, 0);
-          }
+        if (result.costEstimate && this.costRepo) {
+          this.costRepo.record(taskId, agentId, result.costEstimate, result.tokenEstimate ?? 0);
         }
 
         this.emit('task:done', taskId, result);
         if (this.onTaskComplete) {
-          this.onTaskComplete(request.prompt, agentId, result.exitCode === 0);
+          this.onTaskComplete(request.prompt, agentId, result.exitCode === 0, routeConfidence);
         }
 
         // Auto-scale after task completion
@@ -165,6 +228,8 @@ export class TaskExecutor extends EventEmitter {
           }
         }
       } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        this.activeAbortControllers.delete(taskId);
         adapter.removeListener('stdout', onStdout);
         adapter.removeListener('stderr', onStderr);
         adapter.removeListener('truncated', onTruncated);
@@ -198,18 +263,6 @@ export class TaskExecutor extends EventEmitter {
     });
   }
 
-  cancel(taskId: string): boolean {
-    const task = this.taskRepo.getById(taskId);
-    if (!task || task.status !== 'running') return false;
-    const adapter = this.agentManager.getAdapter(task.assignedAgent!);
-    if (!adapter?.cancel?.(taskId)) return false;
-    this.taskRepo.updateStatus(taskId, 'cancelled');
-    this.auditRepo.log(taskId, 'task.cancelled', {});
-    log.info({ taskId }, 'task cancelled');
-    this.emit('task:done', taskId, { exitCode: -1, cancelled: true });
-    return true;
-  }
-
   getTask(taskId: string): TaskDescriptor | undefined {
     return this.taskRepo.getById(taskId);
   }
@@ -218,7 +271,60 @@ export class TaskExecutor extends EventEmitter {
     return this.taskRepo.list(limit, offset);
   }
 
-  getCostRepo(): CostRepo {
+  listTasksByTag(tag: string, limit: number = 50): TaskDescriptor[] {
+    return this.taskRepo.listByTag(tag, limit);
+  }
+
+  searchTasks(query: Parameters<TaskRepo['search']>[0]): TaskDescriptor[] {
+    return this.taskRepo.search(query);
+  }
+
+  cancelTask(taskId: string): boolean {
+    const task = this.taskRepo.getById(taskId);
+    if (!task || (task.status !== 'running' && task.status !== 'pending' && task.status !== 'routing')) {
+      return false;
+    }
+
+    const ac = this.activeAbortControllers.get(taskId);
+    if (ac) {
+      ac.abort('Cancelled by user');
+    }
+
+    this.taskRepo.updateStatus(taskId, 'cancelled');
+    this.auditRepo.log(taskId, 'task.cancelled', {});
+    this.emit('task:status', taskId, { status: 'cancelled' });
+    return true;
+  }
+
+  getQueueInfo(): { length: number; tasks: { taskId: string; agentId: string; priority: number }[] } {
+    const queued = this.taskQueue.getQueuedTasks();
+    return {
+      length: queued.length,
+      tasks: queued.map(q => ({ taskId: q.taskId, agentId: q.agentId, priority: q.priority })),
+    };
+  }
+
+  getDurationHistogram() {
+    return this.taskRepo.getDurationHistogram();
+  }
+
+  getTaskStats() {
+    return this.taskRepo.getStats();
+  }
+
+  deleteTask(taskId: string): boolean {
+    return this.taskRepo.delete(taskId);
+  }
+
+  updateTaskMeta(taskId: string, updates: { tags?: string[]; priority?: number }): void {
+    if (updates.tags !== undefined) this.taskRepo.updateTags(taskId, updates.tags);
+    if (updates.priority !== undefined) this.taskRepo.updatePriority(taskId, updates.priority);
+  }
+
+  pinTask(taskId: string): void { this.taskRepo.pin(taskId); }
+  unpinTask(taskId: string): void { this.taskRepo.unpin(taskId); }
+
+  getCostRepo(): CostRepo | null {
     return this.costRepo;
   }
 }

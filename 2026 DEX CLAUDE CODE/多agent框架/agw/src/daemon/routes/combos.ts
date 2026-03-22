@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ComboExecutor } from '../services/combo-executor.js';
 import type { AppConfig, CreateComboRequest } from '../../types.js';
 import { validateWorkspace } from '../middleware/workspace.js';
+import { parsePagination } from '../middleware/pagination.js';
 
 export function registerComboRoutes(
   app: FastifyInstance,
@@ -34,6 +35,8 @@ export function registerComboRoutes(
         workingDirectory: { type: 'string' },
         priority: { type: 'integer', minimum: 1, maximum: 5, default: 3 },
         maxIterations: { type: 'integer', minimum: 1, maximum: 10, default: 3 },
+        timeoutMs: { type: 'integer', minimum: 1000, maximum: 3600000 },
+        maxMapConcurrency: { type: 'integer', minimum: 1, maximum: 20 },
       },
       additionalProperties: false,
     },
@@ -57,6 +60,20 @@ export function registerComboRoutes(
   // Start a combo from a preset
   app.post<{ Params: { presetId: string }; Body: { input: string; workingDirectory?: string; priority?: number } }>(
     '/combos/preset/:presetId',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['input'],
+          properties: {
+            input: { type: 'string', minLength: 1, maxLength: 100000 },
+            workingDirectory: { type: 'string' },
+            priority: { type: 'integer', minimum: 1, maximum: 5 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
     async (request, reply) => {
       const preset = comboExecutor.getPresets().find(p => p.id === request.params.presetId);
       if (!preset) {
@@ -64,8 +81,14 @@ export function registerComboRoutes(
       }
 
       const { input, workingDirectory, priority } = request.body;
-      if (!input || typeof input !== 'string') {
-        return reply.status(400).send({ error: 'input is required' });
+
+      let validatedDir = workingDirectory;
+      if (validatedDir) {
+        try {
+          validatedDir = validateWorkspace(validatedDir, config.allowedWorkspaces);
+        } catch (err) {
+          return reply.status(400).send({ error: (err as Error).message });
+        }
       }
 
       const comboId = comboExecutor.start({
@@ -73,7 +96,7 @@ export function registerComboRoutes(
         pattern: preset.pattern,
         steps: preset.steps,
         input,
-        workingDirectory,
+        workingDirectory: validatedDir,
         priority,
         maxIterations: preset.maxIterations,
       });
@@ -87,6 +110,17 @@ export function registerComboRoutes(
     return comboExecutor.getPresets();
   });
 
+  // Cancel a running combo
+  app.post<{ Params: { id: string } }>('/combos/:id/cancel', async (request, reply) => {
+    const combo = comboExecutor.getCombo(request.params.id);
+    if (!combo) return reply.status(404).send({ error: 'Combo not found' });
+    if (combo.status !== 'running' && combo.status !== 'pending') {
+      return reply.status(400).send({ error: 'Combo is not running' });
+    }
+    comboExecutor.cancelCombo(request.params.id);
+    return { cancelled: true, comboId: request.params.id };
+  });
+
   // Get combo by ID
   app.get<{ Params: { id: string } }>('/combos/:id', async (request, reply) => {
     const combo = comboExecutor.getCombo(request.params.id);
@@ -96,8 +130,7 @@ export function registerComboRoutes(
 
   // List combos
   app.get<{ Querystring: { limit?: string; offset?: string } }>('/combos', async (request) => {
-    const limit = parseInt(request.query.limit ?? '20', 10);
-    const offset = parseInt(request.query.offset ?? '0', 10);
+    const { limit, offset } = parsePagination(request.query);
     return comboExecutor.listCombos(limit, offset);
   });
 }

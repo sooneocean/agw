@@ -44,6 +44,17 @@ describe('DSL Parser', () => {
     expect(prog.steps[0].prompt).toContain('{{input}}');
   });
 
+  it('handles escaped quotes in prompts', () => {
+    const prog = parseDsl('claude: "say \\"hello\\" to the world"');
+    expect(prog.steps[0].prompt).toBe('say "hello" to the world');
+  });
+
+  it('handles escaped quotes in step list', () => {
+    const prog = parseDsl('{codex: "say \\"hi\\"", claude: "check"}');
+    expect(prog.steps[0].prompt).toBe('say "hi"');
+    expect(prog.steps[1].prompt).toBe('check');
+  });
+
   it('rejects invalid syntax', () => {
     expect(() => parseDsl('garbage')).toThrow();
   });

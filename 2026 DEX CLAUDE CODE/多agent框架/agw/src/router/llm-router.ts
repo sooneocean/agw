@@ -28,16 +28,21 @@ export class LlmRouter {
   private createMessage?: CreateMessageFn;
   private confidenceThreshold: number;
   private routeHistory?: RouteHistory;
-  private lastConfidence = new Map<string, number>();
 
   constructor(
     private apiKey: string,
     private model: string,
-    opts: LlmRouterOptions = {},
+    opts: LlmRouterOptions | CreateMessageFn = {},
   ) {
-    this.createMessage = opts.createMessage;
-    this.confidenceThreshold = opts.confidenceThreshold ?? 0.5;
-    this.routeHistory = opts.routeHistory;
+    // Support legacy constructor: new LlmRouter(key, model, createFn)
+    if (typeof opts === 'function') {
+      this.createMessage = opts;
+      this.confidenceThreshold = 0.5;
+    } else {
+      this.createMessage = opts.createMessage;
+      this.confidenceThreshold = opts.confidenceThreshold ?? 0.5;
+      this.routeHistory = opts.routeHistory;
+    }
   }
 
   async route(
@@ -58,7 +63,6 @@ export class LlmRouter {
       const suggestion = this.routeHistory.suggest(hash, agentIds);
       if (suggestion) {
         log.info({ agentId: suggestion.agentId, reason: suggestion.reason }, 'using historical route');
-        this.lastConfidence.set(hash, suggestion.confidence);
         return suggestion;
       }
     }
@@ -69,7 +73,6 @@ export class LlmRouter {
         log.warn({ prompt: prompt.slice(0, 50), confidence: decision.confidence, threshold: this.confidenceThreshold }, 'LLM confidence too low, falling back');
         return keywordRoute(prompt, agentIds);
       }
-      this.lastConfidence.set(hashPrompt(prompt), decision.confidence);
       return decision;
     } catch {
       return keywordRoute(prompt, agentIds);
@@ -119,22 +122,21 @@ Return ONLY valid JSON: { "agentId": "...", "reason": "...", "confidence": 0.0-1
 
   private getDefaultCreateFn(): CreateMessageFn {
     // Lazy import to avoid requiring the SDK at test time
+    // Cache the client instance to avoid creating a new Anthropic client per call
+    let client: any;
     return async (params) => {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const client = new Anthropic({ apiKey: this.apiKey });
+      if (!client) {
+        const { default: Anthropic } = await import('@anthropic-ai/sdk');
+        client = new Anthropic({ apiKey: this.apiKey });
+      }
       const response = await client.messages.create(params as Parameters<typeof client.messages.create>[0]);
       return response as unknown as { content: Array<{ type: string; text: string }> };
     };
   }
 
-  recordOutcome(prompt: string, agentId: string, success: boolean): void {
+  recordOutcome(prompt: string, agentId: string, success: boolean, confidence: number): void {
     if (!this.routeHistory) return;
     const hash = hashPrompt(prompt);
-    const confidence = this.lastConfidence.get(hash) ?? 0.5;
     this.routeHistory.record(hash, agentId, success, confidence);
-    if (this.lastConfidence.size > 1000) {
-      const firstKey = this.lastConfidence.keys().next().value;
-      if (firstKey) this.lastConfidence.delete(firstKey);
-    }
   }
 }

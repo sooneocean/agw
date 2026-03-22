@@ -1,3 +1,9 @@
 node_modules/
 dist/
-*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+.env
+*.log
+coverage/
