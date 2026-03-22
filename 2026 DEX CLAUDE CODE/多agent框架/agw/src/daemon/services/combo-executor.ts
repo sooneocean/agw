@@ -69,7 +69,7 @@ export const COMBO_PRESETS: ComboPreset[] = [
     pattern: 'pipeline',
     steps: [
       { agent: 'claude', role: 'analyzer', prompt: 'Analyze this task and produce a clear technical plan:\n\n{{input}}' },
-      { agent: 'codex', role: 'implementer', prompt: 'Implement the following plan:\n\n{{prev}}' },
+      { agent: 'codex', role: 'implementer', prompt: 'Implement the following plan:\n\n{{prev}}', fallbackAgents: ['gemini', 'claude'] },
       { agent: 'claude', role: 'reviewer', prompt: 'Review this implementation for correctness, security, and quality. The original request was:\n\n{{input}}\n\nThe implementation output:\n\n{{prev}}' },
     ],
   },
@@ -80,7 +80,7 @@ export const COMBO_PRESETS: ComboPreset[] = [
     pattern: 'map-reduce',
     steps: [
       { agent: 'claude', role: 'analyst-1', prompt: 'Analyze this from an architecture and security perspective:\n\n{{input}}' },
-      { agent: 'codex', role: 'analyst-2', prompt: 'Analyze this from an implementation and performance perspective:\n\n{{input}}' },
+      { agent: 'codex', role: 'analyst-2', prompt: 'Analyze this from an implementation and performance perspective:\n\n{{input}}', fallbackAgents: ['gemini', 'claude'] },
       { agent: 'claude', role: 'synthesizer', prompt: 'Synthesize these independent analyses into a unified recommendation:\n\nAnalysis 1 (Architecture/Security):\n{{step.0}}\n\nAnalysis 2 (Implementation/Performance):\n{{step.1}}\n\nOriginal question:\n{{input}}' },
     ],
   },
@@ -90,7 +90,7 @@ export const COMBO_PRESETS: ComboPreset[] = [
     description: 'Codex implements, Claude reviews, iterates until approved',
     pattern: 'review-loop',
     steps: [
-      { agent: 'codex', role: 'implementer', prompt: '{{input}}\n\n{{prev}}' },
+      { agent: 'codex', role: 'implementer', prompt: '{{input}}\n\n{{prev}}', fallbackAgents: ['gemini', 'claude'] },
       { agent: 'claude', role: 'reviewer', prompt: 'Review this code for correctness, security, and quality.\n\nOriginal request: {{input}}\n\nImplementation:\n{{prev}}\n\nReply with JSON: {"verdict": "APPROVED" or "REJECTED", "feedback": "your review comments"}' },
     ],
     maxIterations: 3,
@@ -102,7 +102,7 @@ export const COMBO_PRESETS: ComboPreset[] = [
     pattern: 'debate',
     steps: [
       { agent: 'claude', role: 'debater-1', prompt: 'Take a strong position on this topic and argue for it:\n\n{{input}}' },
-      { agent: 'codex', role: 'debater-2', prompt: 'Take the opposite position on this topic and argue against it:\n\n{{input}}' },
+      { agent: 'codex', role: 'debater-2', prompt: 'Take the opposite position on this topic and argue against it:\n\n{{input}}', fallbackAgents: ['gemini', 'claude'] },
       { agent: 'claude', role: 'judge', prompt: 'You are a neutral judge. Evaluate both positions and synthesize the strongest answer:\n\nOriginal question: {{input}}\n\nPosition A:\n{{step.0}}\n\nPosition B:\n{{step.1}}' },
     ],
   },
@@ -221,7 +221,7 @@ export class ComboExecutor extends EventEmitter {
 
       this.auditRepo.log(null, 'combo.step', { comboId, stepIndex: i, agent: step.agent, role: step.role });
 
-      const task = await this.executeStep(comboId, step.agent, prompt, request);
+      const task = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
       const output = task.result?.stdout ?? '';
       stepResults[i] = output;
       prev = output;
@@ -257,7 +257,7 @@ export class ComboExecutor extends EventEmitter {
 
       const chunkPromises = chunk.map(async ({ step, i }) => {
         const prompt = interpolate(step.prompt, { input: request.input, stepResults });
-        const task = await this.executeStep(comboId, step.agent, prompt, request);
+        const task = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
         this.comboRepo.addTaskId(comboId, task.taskId);
         if (task.status === 'failed') throw new Error(`Step ${i} failed: exit code ${task.result?.exitCode}`);
         return { step: i, agent: step.agent, role: step.role, task };
@@ -273,11 +273,11 @@ export class ComboExecutor extends EventEmitter {
           this.comboRepo.setStepResult(comboId, i, output);
           results.push({ step: i, agentId: step.agent, output });
         } else {
-          // Retry once with same agent
-          log.warn({ comboId, step: i, agent: step.agent }, 'map step failed, retrying');
+          // Retry with fallback chain
+          log.warn({ comboId, step: i, agent: step.agent }, 'map step failed, retrying with fallback');
           try {
             const prompt = interpolate(step.prompt, { input: request.input, stepResults });
-            const retryTask = await this.executeStep(comboId, step.agent, prompt, request);
+            const retryTask = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
             this.comboRepo.addTaskId(comboId, retryTask.taskId);
             if (retryTask.status === 'failed') throw new Error('Retry also failed');
             const output = retryTask.result?.stdout ?? '';
@@ -341,7 +341,7 @@ export class ComboExecutor extends EventEmitter {
 
       // Implementation step
       const implPrompt = interpolate(implStep.prompt, { input: request.input, prev, stepResults });
-      const implTask = await this.executeStep(comboId, implStep.agent, implPrompt, request);
+      const implTask = await this.executeStep(comboId, implStep.agent, implPrompt, request, implStep.fallbackAgents);
       const implOutput = implTask.result?.stdout ?? '';
       this.comboRepo.addTaskId(comboId, implTask.taskId);
 
@@ -351,7 +351,7 @@ export class ComboExecutor extends EventEmitter {
 
       // Review step
       const reviewPrompt = interpolate(reviewStep.prompt, { input: request.input, prev: implOutput, stepResults });
-      const reviewTask = await this.executeStep(comboId, reviewStep.agent, reviewPrompt, request);
+      const reviewTask = await this.executeStep(comboId, reviewStep.agent, reviewPrompt, request, reviewStep.fallbackAgents);
       const reviewOutput = reviewTask.result?.stdout ?? '';
       this.comboRepo.addTaskId(comboId, reviewTask.taskId);
 
@@ -396,7 +396,7 @@ export class ComboExecutor extends EventEmitter {
       if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
       this.auditRepo.log(null, 'combo.step', { comboId, step: i, agent: step.agent, role: step.role, phase: 'debate' });
       const prompt = interpolate(step.prompt, { input: request.input, stepResults: {}, prev: '' });
-      const task = await this.executeStep(comboId, step.agent, prompt, request);
+      const task = await this.executeStep(comboId, step.agent, prompt, request, step.fallbackAgents);
       this.comboRepo.addTaskId(comboId, task.taskId);
       return { step: i, task };
     });
@@ -424,7 +424,7 @@ export class ComboExecutor extends EventEmitter {
     if (this.isCancelled(comboId)) throw new Error('Combo cancelled');
     this.auditRepo.log(null, 'combo.step', { comboId, step: debaterSteps.length, agent: judgeStep.agent, role: judgeStep.role, phase: 'judge' });
     const judgePrompt = interpolate(judgeStep.prompt, { input: request.input, stepResults, prev: '' });
-    const judgeTask = await this.executeStep(comboId, judgeStep.agent, judgePrompt, request);
+    const judgeTask = await this.executeStep(comboId, judgeStep.agent, judgePrompt, request, judgeStep.fallbackAgents);
     this.comboRepo.addTaskId(comboId, judgeTask.taskId);
     if (judgeTask.status === 'failed') {
       throw new Error(`Judge step failed: exit code ${judgeTask.result?.exitCode}`);
@@ -440,6 +440,7 @@ export class ComboExecutor extends EventEmitter {
     agentId: string,
     prompt: string,
     request: CreateComboRequest,
+    fallbackAgents?: string[],
   ) {
     const taskRequest: CreateTaskRequest = {
       prompt,
@@ -448,7 +449,61 @@ export class ComboExecutor extends EventEmitter {
       priority: request.priority,
     };
 
-    return this.taskExecutor.execute(taskRequest);
+    const task = await this.taskExecutor.execute(taskRequest);
+
+    // If primary agent succeeded, return immediately
+    if (task.status === 'completed') return task;
+
+    // Primary agent failed — try fallback chain
+    const fallbacks = fallbackAgents ?? [];
+    if (fallbacks.length === 0) return task;
+
+    const failReason = task.result?.stderr?.slice(0, 200) ?? 'unknown error';
+    log.warn({ comboId, agent: agentId, failReason }, 'primary agent failed, trying fallback chain');
+    this.auditRepo.log(null, 'combo.fallback', {
+      comboId, primaryAgent: agentId, failReason, fallbackChain: fallbacks,
+    });
+
+    for (const fallbackId of fallbacks) {
+      // Skip if fallback agent is not available
+      const adapter = this.agentManager.getAdapter(fallbackId);
+      if (!adapter) {
+        log.warn({ comboId, fallbackAgent: fallbackId }, 'fallback agent not available, skipping');
+        continue;
+      }
+
+      log.info({ comboId, fallbackAgent: fallbackId }, 'attempting fallback agent');
+      this.auditRepo.log(null, 'combo.fallback.attempt', {
+        comboId, originalAgent: agentId, fallbackAgent: fallbackId,
+      });
+
+      const fallbackRequest: CreateTaskRequest = {
+        prompt,
+        preferredAgent: fallbackId,
+        workingDirectory: request.workingDirectory,
+        priority: request.priority,
+      };
+
+      const fallbackTask = await this.taskExecutor.execute(fallbackRequest);
+      this.comboRepo.addTaskId(comboId, fallbackTask.taskId);
+
+      if (fallbackTask.status === 'completed') {
+        log.info({ comboId, fallbackAgent: fallbackId }, 'fallback agent succeeded');
+        this.auditRepo.log(null, 'combo.fallback.success', {
+          comboId, originalAgent: agentId, fallbackAgent: fallbackId,
+        });
+        return fallbackTask;
+      }
+
+      log.warn({ comboId, fallbackAgent: fallbackId }, 'fallback agent also failed, trying next');
+    }
+
+    // All fallbacks exhausted — return original failed task
+    log.error({ comboId, agent: agentId, fallbacksTried: fallbacks }, 'all fallback agents failed');
+    this.auditRepo.log(null, 'combo.fallback.exhausted', {
+      comboId, primaryAgent: agentId, fallbacksTried: fallbacks,
+    });
+    return task;
   }
 
   getCombo(comboId: string): ComboDescriptor | undefined {

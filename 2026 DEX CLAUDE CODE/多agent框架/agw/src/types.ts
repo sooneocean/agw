@@ -90,6 +90,10 @@ export type AuditEventType =
   | 'combo.iteration'
   | 'combo.completed'
   | 'combo.failed'
+  | 'combo.fallback'
+  | 'combo.fallback.attempt'
+  | 'combo.fallback.success'
+  | 'combo.fallback.exhausted'
   | 'task.cancelled'
   | 'task.timeout'
   | 'task.truncated'
@@ -135,6 +139,8 @@ export interface ComboStep {
   agent: string;
   /** Prompt template. Use {{prev}} for previous step output, {{step.N}} for specific step output, {{input}} for original input */
   prompt: string;
+  /** Fallback agents to try if primary agent fails (rate limit, timeout, error). Tried in order. */
+  fallbackAgents?: string[];
   /** Role label for this step (e.g., "analyzer", "reviewer", "synthesizer") */
   role?: string;
 }
